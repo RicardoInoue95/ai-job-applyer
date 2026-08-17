@@ -189,62 +189,7 @@ def test_obter_plataforma_desconhecida_da_erro_util():
         obter("workday")
 
 
-# ── application_confidence ────────────────────────────────────────────────────
-# O modo sombra respondia "eu teria me candidatado?" e não "eu conseguiria
-# preencher?". São dimensões diferentes e a segunda era incoletável.
-
-from jobapplier.applicators.base import (
-    avaliacao_indisponivel,
-    montar_avaliacao,
-)
-
-
-def test_formulario_todo_respondido_da_confianca_total():
-    a = montar_avaliacao("greenhouse", "api", ["CPF", "LinkedIn"], [])
-    assert a["application_confidence"] == 1.0
-
-
-def test_confianca_e_proporcional_ao_que_sabemos_responder():
-    a = montar_avaliacao("greenhouse", "api", ["a", "b", "c"], ["d"])
-    assert a["application_confidence"] == 0.75
-
-
-def test_bloqueador_zera_a_confianca_mesmo_com_tudo_respondido():
-    """Pergunta eliminatória impede o envio, por melhor que seja a aderência."""
-    a = montar_avaliacao("greenhouse", "api", ["a", "b"], [], ["exige work authorization"])
-    assert a["application_confidence"] == 0.0
-
-
-def test_formulario_sem_perguntas_customizadas_e_o_caso_mais_seguro():
-    a = montar_avaliacao("greenhouse", "api", [], [])
-    assert a["application_confidence"] == 1.0
-
-
-def test_indisponivel_nao_finge_confianca():
-    """Formulário ilegível deve dar None, nunca 1.0.
-
-    Regressão real: 0 campos vindos de um HTTP 404 eram tratados como
-    "formulário simples" e rendiam confiança máxima a uma vaga sequer aberta.
-    """
-    a = avaliacao_indisponivel("linkedin", "sem API de perguntas")
-    assert a["application_confidence"] is None
-    assert a["total_campos"] is None
-    assert a["metodo"] == "indisponivel"
-
-
-def test_avaliacao_tem_formato_estavel():
-    for a in (montar_avaliacao("greenhouse", "api", ["x"], ["y"]),
-              avaliacao_indisponivel("gupy", "motivo")):
-        assert set(a) >= {"plataforma", "metodo", "total_campos", "respondidos",
-                          "desconhecidos", "bloqueadores", "application_confidence"}
-
-
-def test_plataforma_sem_api_de_perguntas_e_honesta():
-    import types
-
-    from jobapplier.applicators.base import avaliar_preenchimento
-
-    v = types.SimpleNamespace(id=1, plataforma="gupy", link="https://x.gupy.io/jobs/1")
-    a = avaliar_preenchimento(v, {})
-    assert a["application_confidence"] is None
-    assert "dry-run" in a["motivo"] or "não expõe" in a["motivo"]
+# A avaliação de preenchimento migrou para o contrato explícito de
+# `applicators.descoberta` e é exercitada pela matriz de 20 cenários em
+# tests/e2e/test_greenhouse_matriz.py, que cobre descoberta, prontidão,
+# bloqueadores e desfecho de submissão contra formulários representativos.

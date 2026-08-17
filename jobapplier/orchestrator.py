@@ -311,6 +311,21 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
 
     resume_json = json.loads(resume_path.read_text(encoding="utf-8"))
 
+    # ── Bloqueio operacional: schema fora de head ────────────────────────────
+    # Candidatura é irreversível; rodá-la sobre schema incompatível arrisca
+    # falhar no meio, com a vaga já em 'em_andamento'. Coleta e UI seguem
+    # funcionando — só a esteira que age em nome do usuário para.
+    from jobapplier.database import schema
+
+    estado = schema.exigir_head()
+    if not estado.em_head:
+        logger.error(
+            "Candidaturas suspensas até o banco estar em head. %s", estado.mensagem()
+        )
+        return {"bloqueado": "schema_fora_de_head",
+                "revisao_aplicada": estado.aplicada,
+                "revisao_esperada": estado.esperada}
+
     from jobapplier.agents.cover_letter import generate as gen_cover_letter
     from jobapplier.agents.resume_optimizer import optimize
     from jobapplier.applicators import base as applicators

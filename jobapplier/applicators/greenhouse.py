@@ -13,8 +13,21 @@ from jobapplier.applicators.base import (
     capturar_falha,
     resultado,
 )
+from jobapplier.applicators.descoberta import (
+    Bloqueio,
+    CodigoBloqueio,
+    Descoberta,
+    Pergunta,
+    StatusDescoberta,
+    montar_avaliacao,
+)
 
 logger = logging.getLogger(__name__)
+
+#: Tipos de campo que a automação não sabe preencher com segurança. Encontrar um
+#: deles é bloqueio, não "campo desconhecido": tentar preencher produziria uma
+#: candidatura inválida em vez de uma incompleta.
+TIPOS_NAO_SUPORTADOS = frozenset({"input_file_multiple", "signature", "captcha"})
 
 API_BASE = "https://boards-api.greenhouse.io/v1/boards"
 BOARD_BASE = "https://boards.greenhouse.io"
@@ -59,13 +72,13 @@ def _parse_link(link: str) -> tuple[str, str] | None:
     return None
 
 
-def _buscar_perguntas(slug: str, job_id: str) -> tuple[list[dict], bool]:
-    """Perguntas do formulário e se a consulta REALMENTE funcionou.
+def descobrir_perguntas(slug: str, job_id: str) -> Descoberta:
+    """Lê as perguntas do formulário e classifica o desfecho.
 
-    A distinção importa: `_get_job_questions` devolve [] tanto para "formulário
-    sem perguntas customizadas" quanto para "não consegui ler a vaga". Tratar os
-    dois como iguais dava confiança de preenchimento 1.0 a uma vaga que sequer
-    foi lida — falso positivo do mesmo tipo que o "obrigado" marcava envio.
+    Devolve status explícito em vez de lista: 404 (vaga sumiu), 5xx (falha
+    temporária, vale retentar), corpo ilegível e vaga encerrada levam a decisões
+    operacionais diferentes, e antes todos viravam a mesma lista vazia — que era
+    indistinguível de "formulário sem perguntas customizadas".
     """
     try:
         resp = requests.get(
@@ -75,18 +88,77 @@ def _buscar_perguntas(slug: str, job_id: str) -> tuple[list[dict], bool]:
             headers={"User-Agent": "Mozilla/5.0"},
         )
     except Exception as exc:
-        logger.warning("Falha ao consultar perguntas de %s/%s: %s", slug, job_id, exc)
-        return [], False
+        logger.warning("Falha de rede ao ler %s/%s: %s", slug, job_id, exc)
+        return Descoberta(StatusDescoberta.FALHA_TEMPORARIA, detalhe=f"erro de rede: {exc}")
 
+    if resp.status_code == 404:
+        return Descoberta(
+            StatusDescoberta.VAGA_NAO_ENCONTRADA, http_status=404,
+            detalhe="vaga não existe mais no board",
+        )
+    if resp.status_code >= 500:
+        return Descoberta(
+            StatusDescoberta.FALHA_TEMPORARIA, http_status=resp.status_code,
+            detalhe="servidor do Greenhouse indisponível",
+        )
     if resp.status_code != 200:
-        logger.warning("Perguntas de %s/%s: HTTP %s", slug, job_id, resp.status_code)
-        return [], False
+        return Descoberta(
+            StatusDescoberta.RESPOSTA_INVALIDA, http_status=resp.status_code,
+            detalhe=f"HTTP inesperado {resp.status_code}",
+        )
 
     try:
-        return resp.json().get("questions", []), True
+        dados = resp.json()
     except Exception as exc:
-        logger.warning("Resposta de perguntas ilegível: %s", exc)
-        return [], False
+        return Descoberta(
+            StatusDescoberta.RESPOSTA_INVALIDA, http_status=200,
+            detalhe=f"corpo não é JSON: {exc}",
+        )
+
+    if not isinstance(dados, dict):
+        return Descoberta(
+            StatusDescoberta.RESPOSTA_INVALIDA, http_status=200,
+            detalhe=f"JSON de tipo inesperado: {type(dados).__name__}",
+        )
+
+    # O Greenhouse mantém a vaga acessível depois de fechada. Sem esta checagem,
+    # vaga encerrada pareceria formulário simples e ganharia confiança alta.
+    if dados.get("closed_at") or dados.get("status") == "closed":
+        return Descoberta(
+            StatusDescoberta.VAGA_ENCERRADA, http_status=200,
+            detalhe="vaga marcada como encerrada",
+        )
+
+    brutas = dados.get("questions")
+    if not isinstance(brutas, list):
+        return Descoberta(
+            StatusDescoberta.RESPOSTA_INVALIDA, http_status=200,
+            detalhe="resposta sem a lista 'questions'",
+        )
+
+    return Descoberta(
+        StatusDescoberta.SUCESSO, http_status=200,
+        perguntas=[p for p in map(_para_pergunta, brutas) if p is not None],
+    )
+
+
+def _para_pergunta(bruta) -> Pergunta | None:
+    """Converte uma pergunta da API para o formato interno. None se inutilizável."""
+    if not isinstance(bruta, dict):
+        return None
+    label = (bruta.get("label") or "").strip()
+    if not label:
+        return None
+
+    campos = bruta.get("fields") or [{}]
+    primeiro = campos[0] if campos and isinstance(campos[0], dict) else {}
+    return Pergunta(
+        label=label,
+        tipo=(primeiro.get("type") or "").strip(),
+        obrigatoria=bool(bruta.get("required")),
+        opcoes=primeiro.get("values") or [],
+        nome_campo=(primeiro.get("name") or "").strip(),
+    )
 
 
 def _get_job_questions(slug: str, job_id: str) -> list[dict]:
@@ -371,9 +443,19 @@ def _auto_answer(
         "salary expectation", "pretensão salarial", "pretensao salarial",
         "remuneração esperada", "salário desejado", "salary range", "compensation",
     ]):
-        salary = config_dados.get("salario") or resume.get("salario_esperado") or "A combinar"
-        if field_type in ("input_text", "textarea"):
+        # Sem valor configurado, NÃO responde. O fallback anterior escrevia
+        # "A combinar" — não é mentira, mas é uma decisão de negociação tomada
+        # em nome do usuário, que nunca a configurou. Alguns recrutadores
+        # descartam "a combinar"; outros esperam um número. É preferência do
+        # candidato, e preferência ausente vira pergunta manual.
+        #
+        # Configure em dados_pessoais.salario (ou salario_esperado no currículo)
+        # para voltar a preencher automaticamente — inclusive com "A combinar",
+        # se essa for a sua escolha.
+        salary = config_dados.get("salario") or resume.get("salario_esperado")
+        if salary and field_type in ("input_text", "textarea"):
             return str(salary)
+        return None
 
     # City / location (text field)
     if any(k in label_lower for k in [
@@ -483,8 +565,6 @@ def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) 
     mesmo `_auto_answer` que a candidatura real usaria e contamos o que fica sem
     resposta — que é exatamente o que viraria pergunta manual.
     """
-    from jobapplier.applicators.base import avaliacao_indisponivel, montar_avaliacao
-
     if config_dados is None:
         from jobapplier.config.manager import ConfigManager
 
@@ -492,52 +572,59 @@ def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) 
 
     parsed = _parse_link(getattr(vaga, "link", "") or "")
     if not parsed:
-        return avaliacao_indisponivel("greenhouse", "link não reconhecido")
+        return montar_avaliacao(
+            "greenhouse",
+            Descoberta(StatusDescoberta.RESPOSTA_INVALIDA, detalhe="link não reconhecido"),
+        )
 
     slug, job_id = parsed
-    questions, consulta_ok = _buscar_perguntas(slug, job_id)
-    if not consulta_ok:
-        # Sem leitura do formulário não há avaliação. Devolver 0 campos aqui
-        # produziria confiança 1.0 para uma vaga que nem foi aberta.
-        return avaliacao_indisponivel(
-            "greenhouse", f"não foi possível ler o formulário de {slug}/{job_id}"
-        )
+    descoberta = descobrir_perguntas(slug, job_id)
+    if not descoberta.ok:
+        # Sem leitura do formulário não há confiança: None, nunca 0.0. Zero
+        # pareceria uma medição válida dizendo "não dá para preencher".
+        return montar_avaliacao("greenhouse", descoberta)
 
     normalizado = getattr(vaga, "normalizado_json", None) or {}
 
-    respondidos: list[str] = []
-    desconhecidos: list[str] = []
-    bloqueadores: list[str] = []
+    obr_ok: list[str] = []
+    obr_nok: list[str] = []
+    opc_ok: list[str] = []
+    opc_nok: list[str] = []
+    bloqueios: list[Bloqueio] = []
 
-    if not config_dados.get("cpf"):
-        bloqueadores.append("CPF não configurado")
+    if not (config_dados.get("cpf") or "").strip():
+        bloqueios.append(Bloqueio(
+            CodigoBloqueio.CPF_AUSENTE, "configure em Setup → Etapa 3",
+        ))
 
-    for q in questions:
-        label = (q.get("label") or "").strip()
-        if not label:
-            continue
-
-        campos = q.get("fields") or [{}]
-        nome_campo = (campos[0].get("name") or "").strip()
-        if nome_campo in CAMPOS_PADRAO:
+    for p in descoberta.perguntas:
+        if p.nome_campo in CAMPOS_PADRAO:
             continue  # nome, e-mail, currículo: sempre preenchíveis
 
-        if any(ph in label.lower() for ph in _us_auth_phrases_globais()):
-            bloqueadores.append(f"exige autorização de trabalho nos EUA: {label[:60]}")
+        if any(ph in p.label.lower() for ph in _us_auth_phrases_globais()):
+            bloqueios.append(Bloqueio(CodigoBloqueio.WORK_AUTHORIZATION, p.label[:80]))
+            continue
+
+        if p.tipo in TIPOS_NAO_SUPORTADOS:
+            bloqueios.append(Bloqueio(
+                CodigoBloqueio.TIPO_NAO_SUPORTADO, f"{p.label[:60]} (tipo {p.tipo})",
+            ))
             continue
 
         resposta = _auto_answer(
-            label,
-            campos[0].get("type", ""),
-            campos[0].get("values") or [],
-            resume, normalizado, config_dados,
+            p.label, p.tipo, p.opcoes, resume, normalizado, config_dados,
         )
-        if resposta:
-            respondidos.append(label[:80])
-        elif q.get("required"):
-            desconhecidos.append(label[:80])
+        if p.obrigatoria:
+            (obr_ok if resposta else obr_nok).append(p.label[:80])
+        else:
+            (opc_ok if resposta else opc_nok).append(p.label[:80])
 
-    return montar_avaliacao("greenhouse", "api", respondidos, desconhecidos, bloqueadores)
+    return montar_avaliacao(
+        "greenhouse", descoberta,
+        obrigatorias_conhecidas=obr_ok, obrigatorias_desconhecidas=obr_nok,
+        opcionais_conhecidas=opc_ok, opcionais_desconhecidas=opc_nok,
+        bloqueios=bloqueios,
+    )
 
 
 def _us_auth_phrases_globais() -> tuple[str, ...]:

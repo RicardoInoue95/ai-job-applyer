@@ -173,3 +173,52 @@ def test_lease_tem_duracao_e_teto_de_tentativas():
 def test_colunas_de_lease_existem():
     for coluna in ("bloqueado_em", "bloqueado_por", "lease_expira_em", "tentativas"):
         assert coluna in Vaga.__table__.columns, coluna
+
+
+# ── Bloqueio por schema fora de head ──────────────────────────────────────────
+
+def test_estado_em_head_quando_revisoes_batem():
+    from jobapplier.database.schema import EstadoSchema
+
+    e = EstadoSchema(aplicada="005", esperada="005", acessivel=True)
+    assert e.em_head
+    assert "em head" in e.mensagem()
+
+
+def test_schema_atrasado_nao_esta_em_head():
+    from jobapplier.database.schema import EstadoSchema
+
+    e = EstadoSchema(aplicada="003", esperada="005", acessivel=True)
+    assert not e.em_head
+    assert "alembic upgrade head" in e.mensagem()
+    assert "backup" in e.mensagem(), "a mensagem deve mandar fazer backup antes"
+
+
+def test_banco_sem_migration_alguma():
+    from jobapplier.database.schema import EstadoSchema
+
+    e = EstadoSchema(aplicada=None, esperada="005", acessivel=True)
+    assert not e.em_head
+    assert "sem nenhuma migration" in e.mensagem()
+
+
+def test_banco_inacessivel_nao_e_head():
+    from jobapplier.database.schema import EstadoSchema
+
+    e = EstadoSchema(aplicada=None, esperada="005", acessivel=False, detalhe="conexão recusada")
+    assert not e.em_head
+    assert "inacessível" in e.mensagem()
+
+
+def test_revisao_esperada_vem_dos_arquivos_de_migration():
+    """Lê as migrations em disco, sem tocar o banco."""
+    from jobapplier.database.schema import revisao_esperada
+
+    assert revisao_esperada() == "005"
+
+
+def test_verificar_nunca_levanta_com_banco_fora():
+    from jobapplier.database.schema import verificar
+
+    estado = verificar()
+    assert isinstance(estado.em_head, bool)

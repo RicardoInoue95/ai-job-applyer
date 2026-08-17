@@ -194,62 +194,14 @@ def capturar_falha(page, plataforma: str, vaga_id: int | str = "?") -> list[Path
 # nunca é executado.
 
 
-def avaliacao_indisponivel(plataforma: str, motivo: str) -> dict:
-    """Resultado quando não há como inspecionar o formulário sem submetê-lo."""
-    return {
-        "plataforma": plataforma,
-        "metodo": "indisponivel",
-        "motivo": motivo,
-        "total_campos": None,
-        "respondidos": None,
-        "desconhecidos": [],
-        "bloqueadores": [],
-        "application_confidence": None,
-    }
-
-
-def montar_avaliacao(
-    plataforma: str,
-    metodo: str,
-    respondidos: list[str],
-    desconhecidos: list[str],
-    bloqueadores: list[str] | None = None,
-) -> dict:
-    """Consolida a avaliação e calcula a confiança de preenchimento.
-
-    Bloqueador zera a confiança, independentemente do resto: uma pergunta
-    eliminatória sem resposta significa que a candidatura não deve sair, por
-    melhor que seja a aderência.
-    """
-    bloqueadores = list(bloqueadores or [])
-    total = len(respondidos) + len(desconhecidos)
-
-    if bloqueadores:
-        confianca = 0.0
-    elif total == 0:
-        # Formulário só com campos padrão (nome, e-mail, currículo). É o caso
-        # mais simples e o mais seguro de automatizar.
-        confianca = 1.0
-    else:
-        confianca = round(len(respondidos) / total, 2)
-
-    return {
-        "plataforma": plataforma,
-        "metodo": metodo,
-        "total_campos": total,
-        "respondidos": respondidos,
-        "desconhecidos": desconhecidos,
-        "bloqueadores": bloqueadores,
-        "application_confidence": confianca,
-    }
-
-
 def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) -> dict:
     """Quanto do formulário desta vaga a automação consegue preencher.
 
     Nunca submete nada. Onde a plataforma expõe as perguntas por API — hoje só o
     Greenhouse — a avaliação custa uma requisição HTTP e nenhum browser.
     """
+    from jobapplier.applicators.descoberta import avaliacao_nao_suportada
+
     plataforma = (getattr(vaga, "plataforma", "") or "").lower()
 
     if plataforma == "greenhouse":
@@ -259,16 +211,16 @@ def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) 
             return _gh(vaga, resume, config_dados)
         except Exception as exc:
             logger.warning("Avaliação de preenchimento falhou: %s", exc)
-            return avaliacao_indisponivel(plataforma, f"erro na avaliação: {exc}")
+            return avaliacao_nao_suportada(plataforma, f"erro na avaliação: {exc}")
 
     if plataforma in PLATAFORMAS:
-        return avaliacao_indisponivel(
+        return avaliacao_nao_suportada(
             plataforma,
             "plataforma não expõe as perguntas sem abrir o formulário; "
             "avaliar exigiria dry-run em browser",
         )
 
-    return avaliacao_indisponivel(plataforma or "desconhecida", "sem automação")
+    return avaliacao_nao_suportada(plataforma or "desconhecida", "sem automação")
 
 
 # ── Registro de plataformas ───────────────────────────────────────────────────
