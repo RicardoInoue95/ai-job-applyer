@@ -30,15 +30,25 @@ except Exception as exc:
 
 with get_session() as session:
     total = session.query(func.count(Candidatura.id)).scalar() or 0
-    enviadas = session.query(func.count(Candidatura.id)).filter(Candidatura.status == "enviada").scalar() or 0
-    pendentes = session.query(func.count(Candidatura.id)).filter(Candidatura.status == "perguntas_pendentes").scalar() or 0
-    erros = session.query(func.count(Candidatura.id)).filter(Candidatura.status == "erro").scalar() or 0
+    # Vocabulário novo + legado: linhas antigas do banco continuam contando.
+    enviadas = session.query(func.count(Candidatura.id)).filter(
+        Candidatura.status.in_(["enviada_confirmada", "enviada"])
+    ).scalar() or 0
+    pendentes = session.query(func.count(Candidatura.id)).filter(
+        Candidatura.status.in_(["revisao_manual", "perguntas_pendentes"])
+    ).scalar() or 0
+    erros = session.query(func.count(Candidatura.id)).filter(
+        Candidatura.status.in_(["falha_automacao", "erro"])
+    ).scalar() or 0
+    simuladas = session.query(func.count(Candidatura.id)).filter(
+        Candidatura.status == "simulada"
+    ).scalar() or 0
     ats_med = session.query(func.avg(Candidatura.ats_score_otimizado)).filter(Candidatura.ats_score_otimizado.isnot(None)).scalar()
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Total", total)
 col2.metric("Enviadas", enviadas)
-col3.metric("Perguntas pendentes", pendentes)
+col3.metric("Requer revisão", pendentes)
 col4.metric("Erros", erros)
 col5.metric("ATS médio", f"{ats_med:.1f}%" if ats_med else "—")
 
@@ -54,7 +64,7 @@ if aprovadas_count:
     if st.button("🚀 Candidatar vagas aprovadas agora", type="primary"):
         with st.spinner("Otimizando currículos, gerando cover letters e candidatando..."):
             try:
-                from orchestrator import run_applications
+                from jobapplier.orchestrator import run_applications
                 run_applications()
                 st.success("✓ Processo de candidatura concluído!")
                 st.rerun()

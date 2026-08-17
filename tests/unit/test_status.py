@@ -1,0 +1,112 @@
+"""O vocabulário de status da UI não pode ficar atrás do backend em silêncio.
+
+A interface conhecia 8 status de vaga enquanto o orquestrador produzia 17 — e o
+ausente mais importante era `pronta_para_revisao`, onde toda vaga do modo sombra
+cai. O ponto do modo sombra é revisão humana, e a tela de revisão não conseguia
+mostrá-las.
+"""
+import pytest
+
+from jobapplier import status
+
+
+def test_todo_status_de_vaga_do_backend_esta_catalogado():
+    """Guarda contra a defasagem voltar: status novo no orquestrador sem
+    entrada aqui quebra este teste, não a interface do usuário."""
+    from jobapplier.applicators.descoberta import STATUS_TERMINAIS
+    from jobapplier.orchestrator import MAPA_STATUS_VAGA
+
+    produzidos = set(MAPA_STATUS_VAGA.values()) | set(STATUS_TERMINAIS) | {
+        "nova", "filtrada_4a", "filtrada_4b", "aprovada", "pendente",
+        "rejeitada", "em_andamento", "sem_automacao", "erro",
+    }
+    catalogados = {s.codigo for s in status.VAGA}
+    faltando = produzidos - catalogados
+    assert not faltando, f"status produzidos pelo backend e não catalogados: {faltando}"
+
+
+def test_todo_status_de_candidatura_esta_catalogado():
+    from jobapplier.applicators.base import STATUS_LEGADOS, STATUS_VALIDOS
+
+    produzidos = set(STATUS_VALIDOS) | set(STATUS_LEGADOS)
+    catalogados = {s.codigo for s in status.CANDIDATURA}
+    assert not produzidos - catalogados
+
+
+def test_modo_sombra_tem_status_visivel_e_exige_acao():
+    """Sem isto, o usuário não vê o que o modo sombra preparou."""
+    s = status.de_vaga("pronta_para_revisao")
+    assert s.rotulo != "pronta_para_revisao", "precisa de rótulo legível"
+    assert s.exige_acao
+    assert "pronta_para_revisao" in status.exigem_sua_acao()
+
+
+def test_status_desconhecido_nao_quebra_a_interface():
+    """Backend pode ganhar estado novo antes da UI; a tela não pode estourar."""
+    s = status.de_vaga("estado_que_ainda_nao_existe")
+    assert s.codigo == "estado_que_ainda_nao_existe"
+    assert s.rotulo
+    assert status.de_candidatura("outro").rotulo
+
+
+def test_status_vazio_ou_none():
+    assert status.de_vaga("").rotulo
+    assert status.de_vaga(None).rotulo
+
+
+def test_grupos_separam_quem_espera_por_quem():
+    """'acao' = espera por você. 'processando'/'bloqueada' = espera pelo sistema."""
+    acao = set(status.exigem_sua_acao())
+    assert {"pendente", "pronta_para_revisao", "aguardando_configuracao"} <= acao
+    # Estes esperam pelo sistema ou por código, não pelo usuário.
+    assert "nova" not in acao
+    assert "aprovada" not in acao
+    assert "sem_automacao" not in acao
+
+
+def test_codigos_unicos_por_tipo():
+    codigos = [s.codigo for s in status.VAGA]
+    assert len(codigos) == len(set(codigos))
+
+
+@pytest.mark.parametrize("s", status.VAGA + status.CANDIDATURA, ids=lambda s: s.codigo)
+def test_todo_status_tem_rotulo_descricao_e_tom_valido(s):
+    assert s.rotulo and s.rotulo != s.codigo, f"{s.codigo} sem rótulo legível"
+    assert s.descricao
+    assert s.tom in status.TOM_ICONE
+
+
+# ── A interface não pode ter import quebrado ──────────────────────────────────
+
+def test_paginas_da_ui_nao_referenciam_modulos_antigos():
+    """Quatro botões ficaram quebrados após a reestruturação — os que disparam
+    coleta, pipeline e candidatura. Passou porque nenhum teste importa as
+    páginas do Streamlit."""
+    import re
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "ui"
+    # Ancorado no início da linha: sem isso "from config." casa dentro de
+    # "from jobapplier.config.manager", e o teste acusa o import correto.
+    antigos = re.compile(
+        r"^\s*(?:from|import)\s+"
+        r"(orchestrator|agents|config|database|applicators|collectors|filters"
+        r"|safety|generators|notifications|resume_parser)\b",
+        re.MULTILINE,
+    )
+    quebrados = [
+        f"{arquivo.name}: {m.group(0).strip()}"
+        for arquivo in ui.rglob("*.py")
+        for m in antigos.finditer(arquivo.read_text(encoding="utf-8"))
+    ]
+    assert not quebrados, f"imports pré-reestruturação na UI: {quebrados}"
+
+
+def test_paginas_da_ui_compilam():
+    """Não renderiza (exige runtime do Streamlit), mas pega erro de sintaxe."""
+    import py_compile
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "ui"
+    for arquivo in ui.rglob("*.py"):
+        py_compile.compile(str(arquivo), doraise=True)

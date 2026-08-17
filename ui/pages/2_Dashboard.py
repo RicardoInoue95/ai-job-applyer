@@ -19,6 +19,31 @@ if not config.is_setup_complete():
 st.title("💼 Dashboard")
 st.caption("AI Job Applier — visão geral")
 
+# ── Estado operacional ────────────────────────────────────────────────────────
+# A interface não expunha nada disto: o usuário não tinha como saber que o modo
+# sombra estava ativo (e portanto que nada seria enviado), nem que o banco
+# estava fora de head (e portanto que as candidaturas estavam suspensas).
+_risco = config.get("risco") or {}
+if _risco.get("modo_sombra", True):
+    st.warning(
+        "**Modo sombra ativo** — o sistema prepara currículo, PDF e cover letter, "
+        "e **não envia** candidatura. As vagas ficam em *Pronta para revisão*. "
+        "Para enviar de verdade, defina `risco.modo_sombra = false`.",
+        icon="🌓",
+    )
+
+try:
+    from jobapplier.database import schema as _schema
+
+    _estado = _schema.verificar()
+    if not _estado.em_head:
+        st.error(
+            f"**Candidaturas suspensas** — {_estado.mensagem()}",
+            icon="🛑",
+        )
+except Exception:
+    pass
+
 # ── Métricas ─────────────────────────────────────────────────────────────────
 
 try:
@@ -312,7 +337,7 @@ with col1:
     if st.button("▶ Coletar vagas agora", type="primary"):
         with st.spinner("Coletando vagas de todas as plataformas..."):
             try:
-                from orchestrator import run_collection
+                from jobapplier.orchestrator import run_collection
                 run_collection()
                 st.success("✓ Coleta concluída!")
                 st.rerun()
@@ -333,7 +358,7 @@ with col2:
         if st.button("⚡ Executar pipeline agora", type="primary"):
             with st.spinner("Processando vagas com IA... (pode levar alguns minutos)"):
                 try:
-                    from orchestrator import run_pipeline
+                    from jobapplier.orchestrator import run_pipeline
                     run_pipeline()
                     st.success("✓ Pipeline concluído! Veja os resultados em Vagas.")
                     st.rerun()
@@ -364,7 +389,7 @@ try:
         if st.button("🚀 Candidatar vagas aprovadas + pendentes", type="primary"):
             with st.spinner("Otimizando currículos e candidatando..."):
                 try:
-                    from orchestrator import run_applications
+                    from jobapplier.orchestrator import run_applications
                     run_applications()
                     st.success("✓ Processo concluído! Veja detalhes em Candidaturas.")
                     st.rerun()

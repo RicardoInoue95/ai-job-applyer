@@ -29,12 +29,26 @@ except Exception as exc:
 
 # ── Filtros ───────────────────────────────────────────────────────────────────
 
+from jobapplier import status as vocab
+
+# Vagas esperando por VOCÊ vêm primeiro: é o que o modo sombra produz e o que
+# a tela existe para resolver. Antes o seletor tinha 6 status fixos e nenhum
+# deles era 'pronta_para_revisao', então o resultado do modo sombra era
+# invisível na interface.
+_aguardando = vocab.exigem_sua_acao()
+_demais = [c for c in vocab.codigos_vaga() if c not in _aguardando]
+_OPCOES = ["aguardando você", *_aguardando, *_demais, "todas"]
+
 col1, col2, col3 = st.columns([2, 2, 1])
 with col1:
     status_filter = st.selectbox(
         "Status",
-        ["pendente", "aprovada", "rejeitada", "nova", "filtrada_4a", "filtrada_4b", "todas"],
+        _OPCOES,
         index=0,
+        format_func=lambda c: (
+            c if c in ("todas", "aguardando você")
+            else f"{vocab.TOM_ICONE[vocab.de_vaga(c).tom]} {vocab.de_vaga(c).rotulo}"
+        ),
     )
 with col2:
     busca = st.text_input("Buscar por título ou empresa", placeholder="ex: Data Engineer, Nubank")
@@ -49,7 +63,9 @@ with col3:
 def _get_vagas(status: str, busca: str) -> list:
     with get_session() as session:
         q = session.query(Vaga)
-        if status != "todas":
+        if status == "aguardando você":
+            q = q.filter(Vaga.status.in_(vocab.exigem_sua_acao()))
+        elif status != "todas":
             q = q.filter(Vaga.status == status)
         elif not mostrar_filtradas:
             q = q.filter(Vaga.status.notin_(["filtrada_4a", "filtrada_4b"]))
