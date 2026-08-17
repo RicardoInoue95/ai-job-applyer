@@ -40,7 +40,15 @@ from .providers import (
 logger = logging.getLogger(__name__)
 
 #: Ordem de preferência da autodetecção e do fallback.
+#: Ordem da AUTODETECÇÃO. Ollama fica de fora de propósito: saber se ele está
+#: no ar exige uma chamada de rede, então autodetectá-lo transformaria "nenhum
+#: provedor configurado" — hoje uma mensagem clara — num "connection refused"
+#: que só apareceria na primeira geração. É escolha explícita, via
+#: AIJOB_LLM_PROVEDOR=ollama ou llm.provedor na config.
 ORDEM_PADRAO = ("openai", "gemini", "anthropic")
+
+#: Provedores que rodam localmente e não têm chave a configurar.
+SEM_CHAVE = frozenset({"ollama"})
 
 __all__ = [
     "MODELOS_SUGERIDOS",
@@ -70,12 +78,18 @@ def _caminhos_config(provedor: str) -> tuple[str, ...]:
 
 
 def chave_do_provedor(provedor: str, config=None) -> str | None:
-    """Chave de API do provedor: ambiente primeiro, config.json depois."""
+    """Chave de API do provedor: ambiente primeiro, config.json depois.
+
+    Provedor local devolve um marcador: não há chave a configurar, mas ele conta
+    como disponível para a autodetecção.
+    """
     from jobapplier.config import secrets
 
     classe = PROVEDORES.get(provedor)
     if classe is None:
         return None
+    if provedor in SEM_CHAVE:
+        return "local"
     return secrets.obter(classe.env_chave, *_caminhos_config(provedor), config=config)
 
 

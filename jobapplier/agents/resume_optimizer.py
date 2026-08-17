@@ -94,7 +94,44 @@ def _normalizar_saida(perfil: dict) -> dict:
     return perfil
 
 
-def optimize(base_profile: dict, vaga, client: "LLMClient") -> dict:
+def otimizar_sem_llm(base_profile: dict, vaga) -> dict:
+    """Otimização por reordenação, sem reescrever nada.
+
+    O ganho de ATS que não depende de modelo é ordenar: trazer para a frente
+    as tecnologias que a vaga pede, entre as que o candidato realmente tem.
+    Muitos parsers de ATS pesam as primeiras ocorrências.
+
+    O que NÃO faz: reescrever resumo ou descrições. Isso exige geração, e
+    inventar frase sem modelo seria pior que manter o texto original —
+    invariante 3, o sistema não afirma o que o currículo não sustenta.
+    """
+    import copy
+
+    from jobapplier import vocabulario as vocab
+
+    perfil = copy.deepcopy(base_profile)
+    normalizado = getattr(vaga, "normalizado_json", None) or {}
+    tec_vaga = [vocab.canonizar(t) for t in (normalizado.get("tecnologias") or [])]
+
+    def prioridade(tec: str) -> tuple[int, int]:
+        canonico = vocab.canonizar(tec)
+        if canonico in tec_vaga:
+            return (0, tec_vaga.index(canonico))
+        if any(vocab.sao_equivalentes(canonico, t) for t in tec_vaga):
+            return (1, 0)
+        return (2, 0)
+
+    if isinstance(perfil.get("tecnologias"), list):
+        perfil["tecnologias"] = sorted(perfil["tecnologias"], key=prioridade)
+
+    for exp in perfil.get("experiencias") or []:
+        if isinstance(exp, dict) and isinstance(exp.get("tecnologias"), list):
+            exp["tecnologias"] = sorted(exp["tecnologias"], key=prioridade)
+
+    return perfil
+
+
+def optimize(base_profile: dict, vaga, client: "LLMClient | None" = None) -> dict:
     """Retorna dict com perfil otimizado + métricas ATS."""
     normalizado = getattr(vaga, "normalizado_json", None) or {}
     job_techs = normalizado.get("tecnologias", [])
@@ -118,14 +155,18 @@ def optimize(base_profile: dict, vaga, client: "LLMClient") -> dict:
         resume_json=json.dumps(base_profile, ensure_ascii=False, indent=2),
     )
 
-    try:
-        otimizado = client.generate_json(prompt, temperature=0.2)
-        if not isinstance(otimizado, dict):
-            logger.warning("Optimizer retornou tipo inesperado, usando base sem alteração")
+    if client is None:
+        logger.info("Otimização sem LLM: reordenando tecnologias, sem reescrever texto.")
+        otimizado = otimizar_sem_llm(base_profile, vaga)
+    else:
+        try:
+            otimizado = client.generate_json(prompt, temperature=0.2)
+            if not isinstance(otimizado, dict):
+                logger.warning("Optimizer retornou tipo inesperado, usando base sem alteração")
+                otimizado = base_profile
+        except Exception as exc:
+            logger.error("Erro na otimização: %s", exc)
             otimizado = base_profile
-    except Exception as exc:
-        logger.error("Erro na otimização: %s", exc)
-        otimizado = base_profile
 
     otimizado = _normalizar_saida(otimizado)
 

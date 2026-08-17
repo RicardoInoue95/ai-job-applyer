@@ -9,7 +9,7 @@ Nota: os nomes de módulo aqui não colidem com os pacotes ``openai`` /
 """
 import logging
 
-from .base import LLMClient, LLMDependenciaAusente, LLMRespostaVazia
+from .base import LLMClient, LLMDependenciaAusente, LLMError, LLMRespostaVazia
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +173,85 @@ class AnthropicClient(LLMClient):
         return self._chamar(prompt, temperature, prefill="{")
 
 
+# ── Ollama (local, sem custo) ─────────────────────────────────────────────────
+
+class OllamaClient(LLMClient):
+    """Modelo rodando na própria máquina, via Ollama. Nenhum custo por token.
+
+    Existe para o caso de não querer pagar API. O Ollama expõe uma API compatível
+    com a da OpenAI em localhost:11434/v1, então reaproveitamos o mesmo SDK em vez
+    de escrever um cliente HTTP.
+
+    A chave é ignorada pelo servidor, mas o SDK exige string não vazia — daí o
+    valor fixo. `env_chave` existe só para satisfazer o contrato do registro.
+
+    Onde usar: normalização e scoring devem ir pelo caminho determinístico de
+    `agents.extracao`, que é melhor e instantâneo. O Ollama vale para o que exige
+    geração de texto — cover letter e reescrita de currículo — onde um modelo
+    7B/8B local produz resultado utilizável.
+
+        ollama pull llama3.1:8b
+        ollama serve
+    """
+
+    provedor = "ollama"
+    modelo_padrao = "llama3.1:8b"
+    pacote_pip = "openai"
+    env_chave = "OLLAMA_API_KEY"
+    base_url_padrao = "http://localhost:11434/v1"
+
+    def __init__(self, api_key=None, modelo=None, base_url=None, **kwargs):
+        # O servidor local não autentica; o SDK apenas exige algo não vazio.
+        super().__init__(api_key or "ollama-local", modelo, **kwargs)
+        _exigir("openai", self.pacote_pip)
+        from openai import OpenAI
+
+        from jobapplier.config import secrets
+
+        self.base_url = base_url or secrets.obter("OLLAMA_BASE_URL") or self.base_url_padrao
+        self._sdk = OpenAI(api_key=self.api_key, base_url=self.base_url)
+
+    def _e_rate_limit(self, exc: Exception) -> bool:
+        # Servidor local não tem cota. "Connection refused" é o Ollama fora do ar,
+        # e repetir com backoff só atrasa o erro real.
+        return False
+
+    def _chamar(self, prompt: str, temperature: float, response_format=None) -> str:
+        kwargs = {
+            "model": self.modelo,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+        }
+        if response_format:
+            kwargs["response_format"] = response_format
+        try:
+            resposta = self._sdk.chat.completions.create(**kwargs)
+        except Exception as exc:
+            if any(s in str(exc).lower() for s in ("connect", "refused", "econnrefused")):
+                raise LLMError(
+                    f"Ollama não respondeu em {self.base_url}. Suba com: ollama serve"
+                ) from exc
+            raise
+
+        conteudo = resposta.choices[0].message.content
+        if conteudo is None:
+            raise LLMRespostaVazia("[ollama] resposta sem conteudo")
+        return conteudo
+
+    def _gerar_texto(self, prompt: str, temperature: float) -> str:
+        return self._chamar(prompt, temperature)
+
+    def _gerar_json_nativo(self, prompt: str, temperature: float) -> str | None:
+        return self._chamar(prompt, temperature, response_format={"type": "json_object"})
+
+
 # ── Catálogo ──────────────────────────────────────────────────────────────────
 
 PROVEDORES: dict[str, type[LLMClient]] = {
     "gemini": GeminiClient,
     "openai": OpenAIClient,
     "anthropic": AnthropicClient,
+    "ollama": OllamaClient,
 }
 
 #: Modelos sugeridos por provedor, do mais barato ao mais capaz. Só rótulos
@@ -197,5 +270,10 @@ MODELOS_SUGERIDOS: dict[str, list[tuple[str, str]]] = {
         ("claude-haiku-4-5-20251001", "Haiku 4.5 — rápido e barato"),
         ("claude-sonnet-5", "Sonnet 5 — equilibrado (padrão)"),
         ("claude-opus-5", "Opus 5 — mais capaz"),
+    ],
+    "ollama": [
+        ("llama3.1:8b", "Llama 3.1 8B — local, sem custo (padrão)"),
+        ("qwen2.5:7b", "Qwen 2.5 7B — local, bom em JSON"),
+        ("mistral:7b", "Mistral 7B — local, leve"),
     ],
 }

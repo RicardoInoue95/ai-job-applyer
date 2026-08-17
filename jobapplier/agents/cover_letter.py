@@ -33,8 +33,53 @@ Escreva uma carta de apresentação profissional em português com:
 Retorne SOMENTE o texto da carta, sem assunto, sem cabeçalho, sem assinatura."""
 
 
-def generate(resume_json: dict, vaga, client: "LLMClient") -> str | None:
-    """Gera cover letter personalizada. Retorna texto ou None em caso de erro."""
+def montar_sem_llm(resume_json: dict, vaga) -> str:
+    """Cover letter montada a partir de fatos do currículo, sem modelo.
+
+    Não tenta imitar texto gerado: é curta, factual e diz apenas o que o
+    currículo sustenta — cargo atual, tempo de experiência e quais
+    tecnologias pedidas na vaga o candidato de fato usa. Uma carta genérica
+    fingindo entusiasmo seria pior que nenhuma; esta é honesta sobre o que é.
+
+    Existe porque muitos formulários têm campo obrigatório de carta.
+    """
+    from jobapplier import vocabulario as vocab
+
+    normalizado = getattr(vaga, "normalizado_json", None) or {}
+    experiencias = resume_json.get("experiencias") or []
+    cargo_atual = experiencias[0].get("cargo", "") if experiencias else ""
+    nome = resume_json.get("nome", "")
+    empresa = getattr(vaga, "empresa", "") or "a empresa"
+    titulo = normalizado.get("cargo") or getattr(vaga, "titulo", "") or "a vaga"
+
+    tec_vaga = normalizado.get("tecnologias") or []
+    tec_curriculo = {vocab.canonizar(t) for t in (resume_json.get("tecnologias") or [])}
+    em_comum = [t for t in tec_vaga if t in tec_curriculo]
+
+    linhas = [f"Prezada equipe de {empresa},", ""]
+    abertura = f"Escrevo para me candidatar à vaga de {titulo}."
+    if cargo_atual:
+        abertura += f" Atuo hoje como {cargo_atual}."
+    linhas.append(abertura)
+
+    if em_comum:
+        linhas += ["", "Tenho experiência prática com as tecnologias centrais da vaga: "
+                   + ", ".join(em_comum[:8]) + "."]
+
+    conquistas = [c for e in experiencias for c in (e.get("conquistas") or [])]
+    if conquistas:
+        linhas += ["", conquistas[0].rstrip(".") + "."]
+
+    linhas += ["", "Fico à disposição para conversar sobre como posso contribuir.",
+               "", "Atenciosamente,", nome]
+    return "\n".join(linhas)
+
+
+def generate(resume_json: dict, vaga, client: "LLMClient | None" = None) -> str | None:
+    """Gera cover letter. Sem ``client``, monta a versão factual sem modelo."""
+    if client is None:
+        return montar_sem_llm(resume_json, vaga)
+
     normalizado = getattr(vaga, "normalizado_json", None) or {}
 
     experiencias = resume_json.get("experiencias", [])

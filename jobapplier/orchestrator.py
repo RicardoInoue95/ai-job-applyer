@@ -151,14 +151,34 @@ def run_collection():
         log.registrar_metricas(run_id, metricas)
 
 
+def _obter_cliente_llm(config):
+    """Cliente de LLM, ou None para o caminho determinístico.
+
+    Sem provedor configurado o pipeline NÃO para: normalização e scoring têm
+    implementação determinística em `agents.extracao`, que é onde estava o
+    grosso do custo de API — milhares de vagas por ciclo. O sistema roda
+    inteiro sem gastar um centavo.
+    """
+    from jobapplier.llm import LLMError, get_client
+
+    if (config.get("llm") or {}).get("modo_sem_api"):
+        logger.info("modo_sem_api ativo: usando extração determinística.")
+        return None
+    try:
+        return get_client(config=config, use_cache=True)
+    except LLMError as exc:
+        logger.info(
+            "Sem provedor de LLM (%s). Seguindo pelo caminho determinístico, "
+            "sem custo. Para usar um modelo, configure uma chave no .env ou "
+            "rode um local com: ollama serve",
+            exc,
+        )
+        return None
+
+
 def _executar_pipeline() -> dict:
     """Módulos 4A → 2 → 4B → 3: filtra, normaliza e pontua vagas novas."""
     config = ConfigManager()
-    api_key = secrets.gemini_api_key()
-
-    if not api_key:
-        logger.warning("Nenhum provedor de LLM configurado. Pipeline ignorado.")
-        return {}
 
     resume_path = paths.RESUME_JSON
     if not resume_path.exists():
@@ -174,9 +194,8 @@ def _executar_pipeline() -> dict:
     from jobapplier.agents.normalizer import normalize
     from jobapplier.agents.scorer import score
     from jobapplier.filters import post_filter, pre_filter
-    from jobapplier.llm import get_client
 
-    client = get_client(config=config, use_cache=True)
+    client = _obter_cliente_llm(config)
 
     with get_session() as session:
         vagas_novas = (
@@ -280,11 +299,6 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
     comportamento antigo, defina risco.auto_aplicar_pendentes = true na config.
     """
     config = ConfigManager()
-    api_key = secrets.gemini_api_key()
-
-    if not api_key:
-        logger.warning("Nenhum provedor de LLM configurado.")
-        return {}
 
     resume_path = paths.RESUME_JSON
     resumes_dir = paths.RESUMES
@@ -302,10 +316,9 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
     from jobapplier.applicators import base as applicators
     from jobapplier.database.models import Candidatura
     from jobapplier.generators.pdf import generate_pdf
-    from jobapplier.llm import get_client
     from jobapplier.safety import guard
 
-    client = get_client(config=config, use_cache=True)
+    client = _obter_cliente_llm(config)
 
     cfg = config.load()
     risco_cfg = cfg.get("risco") or {}

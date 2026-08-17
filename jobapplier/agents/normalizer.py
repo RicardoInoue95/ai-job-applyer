@@ -1,6 +1,7 @@
-"""Módulo 2 — Normalização via Gemini.
+"""Módulo 2 — Normalização.
 
-Recebe descrição bruta e extrai campos estruturados em JSON.
+Recebe descrição bruta e extrai campos estruturados em JSON. Dois caminhos com o
+mesmo formato de saída: extração determinística (padrão, sem custo) e LLM.
 """
 import logging
 from typing import TYPE_CHECKING
@@ -35,8 +36,21 @@ Retorne SOMENTE o JSON com os campos abaixo. Nunca invente informações — use
 }}"""
 
 
-def normalize(vaga, client: "LLMClient") -> dict | None:
-    """Normaliza uma vaga via Gemini. Retorna o dict ou None em caso de erro."""
+def normalize(vaga, client: "LLMClient | None" = None) -> dict | None:
+    """Normaliza uma vaga. Retorna o dict ou None em caso de erro.
+
+    Sem ``client``, usa extração determinística — sem rede e sem custo. É o
+    caminho padrão quando não há provedor de LLM configurado, e cobre a etapa de
+    maior volume do pipeline: normalizar é extrair, não julgar.
+
+    Com ``client``, usa o modelo. Ganha em descrição mal escrita e em tecnologia
+    fora do vocabulário; perde em custo e em reprodutibilidade.
+    """
+    if client is None:
+        from jobapplier.agents.extracao import normalizar
+
+        return normalizar(vaga)
+
     titulo = getattr(vaga, "titulo", "") or ""
     empresa = getattr(vaga, "empresa", "") or ""
     localizacao = getattr(vaga, "localizacao", "") or ""

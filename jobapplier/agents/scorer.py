@@ -84,8 +84,15 @@ def _resolve_data_fim(data_fim: str | None, today_str: str) -> str:
     return data_fim
 
 
-def score(vaga, resume_json: dict, client: "LLMClient") -> dict | None:
-    """Retorna o resultado do scoring ou None em caso de erro."""
+def score(vaga, resume_json: dict, client: "LLMClient | None" = None) -> dict | None:
+    """Pontua a aderência da vaga ao currículo. None em caso de erro.
+
+    Sem ``client``, usa o scorer determinístico de `agents.extracao`: requisito
+    obrigatório, senioridade, idioma e localização viram regra, e equivalência
+    entre tecnologias sai de uma tabela curada. Devolve os mesmos campos do
+    caminho por LLM, mais `hard_requirements_met`, `missing_required` e
+    `confidence` — porque um número sozinho não sustenta a decisão de candidatar.
+    """
     today = hoje()
     today_str = today.strftime("%m/%Y")
     normalizado = getattr(vaga, "normalizado_json", None) or {}
@@ -106,6 +113,11 @@ def score(vaga, resume_json: dict, client: "LLMClient") -> dict | None:
     inicio_atual = exp_atual.get("data_inicio", "?")
 
     anos_exp = _calc_anos_exp(experiencias_raw, today)
+
+    if client is None:
+        from jobapplier.agents.extracao import pontuar
+
+        return pontuar(vaga, resume_json, anos_exp)
 
     # Substitui data_fim None pela data atual para cálculo correto de duração
     resume_resumido = {

@@ -246,8 +246,8 @@ def test_fallback_expoe_cadeia_no_repr():
 
 # ── Catálogo e resolução ──────────────────────────────────────────────────────
 
-def test_tres_provedores_registrados():
-    assert set(llm.PROVEDORES) == {"gemini", "openai", "anthropic"}
+def test_provedores_registrados():
+    assert set(llm.PROVEDORES) == {"gemini", "openai", "anthropic", "ollama"}
 
 
 def test_todo_provedor_declara_metadados():
@@ -264,8 +264,30 @@ def test_modelo_padrao_esta_entre_os_sugeridos():
         assert classe.modelo_padrao in ids, f"padrão de {nome} fora de MODELOS_SUGERIDOS"
 
 
-def test_ordem_padrao_cobre_todos_os_provedores():
-    assert set(llm.ORDEM_PADRAO) == set(llm.PROVEDORES)
+def test_ordem_padrao_e_subconjunto_dos_provedores():
+    assert set(llm.ORDEM_PADRAO) <= set(llm.PROVEDORES)
+
+
+def test_ollama_fica_fora_da_autodeteccao():
+    """Saber se o Ollama está no ar exige rede.
+
+    Autodetectá-lo trocaria a mensagem clara de "nenhum provedor configurado"
+    por um connection refused tardio, na primeira geração.
+    """
+    assert "ollama" in llm.PROVEDORES
+    assert "ollama" not in llm.ORDEM_PADRAO
+    assert "ollama" in llm.SEM_CHAVE
+
+
+def test_ollama_funciona_quando_pedido_explicitamente(tmp_path):
+    from jobapplier.config.manager import ConfigManager
+
+    cliente = llm.get_client(
+        config=ConfigManager(path=tmp_path / "v.json"),
+        provedor="ollama", com_fallback=False,
+    )
+    assert cliente.provedor == "ollama"
+    assert "11434" in cliente.base_url
 
 
 def test_provedor_desconhecido_no_teste_de_conexao():
