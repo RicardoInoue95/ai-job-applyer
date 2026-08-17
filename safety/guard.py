@@ -21,7 +21,7 @@ sobre as colunas naive-UTC do banco.
 import logging
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func
 
@@ -60,7 +60,7 @@ STATUS_CONTATO_REAL = ("enviada", "perguntas_pendentes")
 
 def _agora() -> datetime:
     """UTC naive, compatível com as colunas do banco (que usam utcnow())."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _cfg_risco(config: dict | None) -> dict:

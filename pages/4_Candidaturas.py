@@ -1,5 +1,7 @@
 import json
+
 import streamlit as st
+
 from config.manager import ConfigManager
 
 st.set_page_config(
@@ -15,9 +17,10 @@ if not config.is_setup_complete():
 st.title("🎯 Candidaturas")
 
 try:
+    from sqlalchemy import func
+
     from database.connection import get_session
     from database.models import Candidatura, Vaga
-    from sqlalchemy import func
 except Exception as exc:
     st.error(f"Erro ao conectar ao banco: {exc}")
     st.stop()
@@ -157,7 +160,7 @@ else:
 
             # ── Botão retry ────────────────────────────────────────────────
             if cand.status in ("perguntas_pendentes", "erro") and vaga:
-                if st.button(f"🔄 Tentar novamente", key=f"retry_{cand.id}"):
+                if st.button("🔄 Tentar novamente", key=f"retry_{cand.id}"):
                     with get_session() as session:
                         session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": "aprovada"})
                     st.success("Vaga redefinida para 'aprovada'. Clique em 'Candidatar vagas aprovadas' para tentar novamente.")

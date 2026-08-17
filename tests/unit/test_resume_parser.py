@@ -1,12 +1,11 @@
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from resume_parser.models import ResumeJSON, Experiencia, Idioma
-from resume_parser.exceptions import UnsupportedFormatError, ParseError
-
+from resume_parser.exceptions import ParseError, UnsupportedFormatError
+from resume_parser.models import ResumeJSON
 
 SAMPLE_RESUME_JSON = {
     "nome": "Ricardo Inoue",
@@ -69,30 +68,61 @@ def test_unsupported_format_raises():
         get_extractor(Path("resume.txt"))
 
 
-def test_gemini_parser_calls_client():
-    pytest.importorskip("google.generativeai", reason="google-generativeai not installed")
-    from resume_parser.parsers.gemini import GeminiResumeParser
+# O parser não depende mais de SDK de provedor: recebe um client injetado, então
+# estes testes rodam sempre. Antes usavam importorskip("google.generativeai") —
+# o SDK legado, que o projeto nunca instalou (usa google-genai / google.genai) —
+# e por isso eram silenciosamente pulados.
+
+def test_llm_parser_calls_client():
+    from resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     mock_client.generate_json.return_value = SAMPLE_RESUME_JSON
 
-    parser = GeminiResumeParser(client=mock_client)
+    parser = LLMResumeParser(client=mock_client)
     result = parser.parse("Some resume text")
 
     assert result.nome == "Ricardo Inoue"
     mock_client.generate_json.assert_called_once()
 
 
-def test_gemini_parser_raises_on_invalid_json():
-    pytest.importorskip("google.generativeai", reason="google-generativeai not installed")
-    from resume_parser.parsers.gemini import GeminiResumeParser
+def test_llm_parser_raises_on_invalid_json():
+    from resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     mock_client.generate_json.side_effect = json.JSONDecodeError("test", "", 0)
 
-    parser = GeminiResumeParser(client=mock_client)
+    parser = LLMResumeParser(client=mock_client)
     with pytest.raises(ParseError):
         parser.parse("Some text")
+
+
+def test_llm_parser_raises_on_schema_mismatch():
+    from resume_parser.parsers import LLMResumeParser
+
+    mock_client = MagicMock()
+    mock_client.generate_json.return_value = {"campo": "inesperado"}
+
+    parser = LLMResumeParser(client=mock_client)
+    with pytest.raises(ParseError, match="schema"):
+        parser.parse("Some text")
+
+
+def test_llm_parser_raises_on_empty_text():
+    """PDF do qual a extração não tirou texto não deve virar chamada de LLM."""
+    from resume_parser.parsers import LLMResumeParser
+
+    mock_client = MagicMock()
+    parser = LLMResumeParser(client=mock_client)
+    with pytest.raises(ParseError, match="vazio"):
+        parser.parse("   ")
+    mock_client.generate_json.assert_not_called()
+
+
+def test_alias_antigo_do_parser_ainda_importa():
+    from resume_parser.parsers import GeminiResumeParser, LLMResumeParser
+
+    assert GeminiResumeParser is LLMResumeParser
 
 
 def test_resume_json_serialization_roundtrip():

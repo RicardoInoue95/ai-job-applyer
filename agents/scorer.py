@@ -3,10 +3,11 @@
 Avalia aderência entre currículo JSON e vaga normalizada.
 Pesos: Skills 40%, Senioridade 20%, Setor 15%, Idioma 15%, Localização 10%
 """
-import logging
 import json
+import logging
 from datetime import date
 from typing import TYPE_CHECKING
+
 
 def _parse_mes_ano(s: str) -> date | None:
     """Converte 'MM/YYYY' em date(YYYY, MM, 1). Retorna None se inválido."""
@@ -29,7 +30,7 @@ def _calc_anos_exp(experiencias: list[dict], today: date) -> float:
     return round(total_meses / 12, 1)
 
 if TYPE_CHECKING:
-    from agents.gemini_client import GeminiClient
+    from agents.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def _resolve_data_fim(data_fim: str | None, today_str: str) -> str:
     return data_fim
 
 
-def score(vaga, resume_json: dict, client: "GeminiClient") -> dict | None:
+def score(vaga, resume_json: dict, client: "LLMClient") -> dict | None:
     """Retorna o resultado do scoring ou None em caso de erro."""
     today = date.today()
     today_str = today.strftime("%m/%Y")

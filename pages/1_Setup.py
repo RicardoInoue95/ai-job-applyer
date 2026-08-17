@@ -1,6 +1,4 @@
 import json
-import shutil
-import tempfile
 from pathlib import Path
 
 import streamlit as st
@@ -17,7 +15,7 @@ config = ConfigManager()
 
 TOTAL_STEPS = 7
 STEP_LABELS = [
-    "Gemini API",
+    "Provedor IA",
     "Currículo",
     "Preferências",
     "LinkedIn",
@@ -101,37 +99,110 @@ def _back(step: int):
     st.rerun()
 
 
-# ── Etapa 1: Gemini API Key ──────────────────────────────────────────────────
+# ── Etapa 1: Provedor de IA ──────────────────────────────────────────────────
+
+PROVEDOR_INFO = {
+    "openai": ("OpenAI (ChatGPT)", "https://platform.openai.com/api-keys", "sk-..."),
+    "gemini": ("Google Gemini", "https://aistudio.google.com/apikey", "AI..."),
+    "anthropic": ("Anthropic (Claude)", "https://console.anthropic.com/settings/keys", "sk-ant-..."),
+}
+
 
 def step_1():
-    st.title("Etapa 1 — Gemini API Key")
+    from agents.llm import (
+        MODELOS_SUGERIDOS,
+        ORDEM_PADRAO,
+        PROVEDORES,
+        chave_do_provedor,
+        provedores_configurados,
+        testar_conexao,
+    )
+    from config import secrets
+
+    st.title("Etapa 1 — Provedor de IA")
     st.markdown(
-        "Acesse [Google AI Studio](https://aistudio.google.com/app/apikey) para obter sua API key gratuitamente."
+        "Escolha qual API usará para normalizar vagas, pontuar aderência, "
+        "otimizar currículo e gerar cover letters. Você pode trocar depois sem "
+        "perder nada — o provedor é configuração, não código."
     )
 
-    saved_key = config.get_gemini_key() or ""
-    api_key = st.text_input(
-        "API Key do Gemini",
-        value=saved_key,
+    ja_configurados = provedores_configurados()
+    salvo = config.get("llm", "provedor") or (ja_configurados[0] if ja_configurados else "openai")
+
+    opcoes = list(ORDEM_PADRAO)
+    provedor = st.selectbox(
+        "Provedor",
+        opcoes,
+        index=opcoes.index(salvo) if salvo in opcoes else 0,
+        format_func=lambda p: (
+            f"{PROVEDOR_INFO[p][0]}" + (" ✓ chave configurada" if p in ja_configurados else "")
+        ),
+    )
+
+    rotulo, url_chave, placeholder = PROVEDOR_INFO[provedor]
+    st.caption(f"Obtenha a chave em [{rotulo}]({url_chave})")
+
+    # ── Modelo ────────────────────────────────────────────────────────────────
+    sugeridos = MODELOS_SUGERIDOS.get(provedor, [])
+    padrao_provedor = PROVEDORES[provedor].modelo_padrao
+    modelo_salvo = config.get("llm", "modelo")
+
+    ids = [m for m, _ in sugeridos]
+    rotulos = {m: r for m, r in sugeridos}
+    OUTRO = "__outro__"
+    escolha = st.selectbox(
+        "Modelo",
+        ids + [OUTRO],
+        index=ids.index(modelo_salvo) if modelo_salvo in ids else ids.index(padrao_provedor) if padrao_provedor in ids else 0,
+        format_func=lambda m: "Outro (digitar ID)" if m == OUTRO else rotulos.get(m, m),
+    )
+    modelo = st.text_input("ID do modelo", value=modelo_salvo or padrao_provedor) if escolha == OUTRO else escolha
+
+    # ── Chave ─────────────────────────────────────────────────────────────────
+    chave_atual = chave_do_provedor(provedor) or ""
+    if chave_atual:
+        st.success(f"Chave de {rotulo} já configurada (…{chave_atual[-4:]}). Deixe em branco para manter.")
+
+    chave_nova = st.text_input(
+        f"API Key — {rotulo}",
+        value="",
         type="password",
-        placeholder="API...",
+        placeholder=placeholder,
+        help="Gravada em .env, fora do controle de versão. Nunca vai para data/config.json.",
+    )
+    chave_efetiva = chave_nova or chave_atual
+
+    # ── Fallback ──────────────────────────────────────────────────────────────
+    outros = [p for p in ja_configurados if p != provedor]
+    usar_fallback = st.checkbox(
+        "Usar outros provedores como reserva se este falhar",
+        value=bool(config.get("llm", "fallback")),
+        disabled=not outros,
+        help=(f"Reservas disponíveis: {', '.join(PROVEDOR_INFO[p][0] for p in outros)}"
+              if outros else "Configure uma segunda chave para habilitar."),
     )
 
-    if st.button("Testar conexão", type="primary", disabled=not api_key):
-        with st.spinner("Conectando ao Gemini..."):
-            from agents.gemini_client import GeminiClient
-            ok, msg = GeminiClient.test_connection(api_key)
+    if st.button("Testar conexão", type="primary", disabled=not chave_efetiva):
+        with st.spinner(f"Conectando ao {rotulo}..."):
+            ok, msg = testar_conexao(provedor, api_key=chave_efetiva, modelo=modelo)
 
         if ok:
-            config.set("gemini", "api_key", value=api_key)
+            if chave_nova:
+                secrets.gravar_env(PROVEDORES[provedor].env_chave, chave_nova)
+            config.set("llm", "provedor", value=provedor)
+            config.set("llm", "modelo", value=modelo)
+            config.set("llm", "fallback", value=True if usar_fallback else None)
             st.success(f"✓ {msg}")
-            st.session_state["gemini_key_ok"] = True
+            st.session_state["llm_key_ok"] = True
         else:
             st.error(f"✗ Erro: {msg}")
-            st.session_state["gemini_key_ok"] = False
+            st.session_state["llm_key_ok"] = False
 
-    if st.session_state.get("gemini_key_ok") or saved_key:
-        st.button("Próximo →", on_click=_advance, args=(1,), type="primary" if st.session_state.get("gemini_key_ok") else "secondary")
+    if st.session_state.get("llm_key_ok") or chave_atual:
+        st.button(
+            "Próximo →", on_click=_advance, args=(1,),
+            type="primary" if st.session_state.get("llm_key_ok") else "secondary",
+        )
 
 
 # ── Etapa 2: Upload de Currículo ─────────────────────────────────────────────
@@ -140,9 +211,10 @@ def step_2():
     st.title("Etapa 2 — Currículo")
     st.markdown("Envie seu currículo em **PDF** ou **DOCX**. Ele será analisado e convertido para JSON.")
 
-    api_key = config.get_gemini_key()
-    if not api_key:
-        st.error("Configure a API Key do Gemini na Etapa 1 primeiro.")
+    from agents.llm import provedores_configurados
+
+    if not provedores_configurados():
+        st.error("Configure um provedor de IA na Etapa 1 primeiro.")
         st.button("← Voltar", on_click=_back, args=(2,))
         return
 
@@ -172,16 +244,16 @@ def step_2():
     if uploaded:
         st.info(f"Arquivo: {uploaded.name} ({uploaded.size // 1024} KB)")
 
-        if st.button("Analisar currículo com Gemini", type="primary"):
+        if st.button("Analisar currículo com IA", type="primary"):
             RESUMES_DIR.mkdir(parents=True, exist_ok=True)
             suffix = Path(uploaded.name).suffix
             resume_path = RESUMES_DIR / f"resume_master{suffix}"
             resume_path.write_bytes(uploaded.getvalue())
 
-            with st.spinner("Analisando com Gemini... (pode levar 30 segundos)"):
+            with st.spinner("Analisando currículo... (pode levar 30 segundos)"):
                 try:
                     from resume_parser.pipeline import ResumePipeline
-                    pipeline = ResumePipeline(api_key=api_key)
+                    pipeline = ResumePipeline()
                     resume, profiles = pipeline.run(resume_path, RESUMES_DIR)
 
                     resume_data = resume.model_dump()
@@ -272,11 +344,14 @@ Retorne SOMENTE JSON, sem explicações:
 Liste pelo menos 25 empresas variadas entre os setores solicitados."""
 
 
-def _descobrir_empresas(setores: str, cargos: str, api_key: str) -> dict:
+def _descobrir_empresas(setores: str, cargos: str, api_key: str | None = None) -> dict:
     import requests
-    from agents.gemini_client import GeminiClient
 
-    client = GeminiClient(api_key=api_key, use_cache=False)
+    from agents.llm import get_client
+
+    # api_key é ignorado: a chave vem do provedor configurado. Parâmetro mantido
+    # para não quebrar chamadas existentes.
+    client = get_client(use_cache=False)
     prompt = DISCOVER_PROMPT.format(setores=setores, cargos=cargos)
 
     sugestoes = client.generate_json(prompt, temperature=0.3)
@@ -316,7 +391,11 @@ def step_3():
     st.markdown("Configure os critérios de busca e as empresas que serão monitoradas.")
 
     saved = config.get("coleta") or {}
-    api_key = config.get_gemini_key()
+
+    from agents.llm import provedores_configurados
+
+    # A descoberta por setor usa o LLM; só é ofertada se houver provedor com chave.
+    tem_llm = bool(provedores_configurados())
 
     # ── Descoberta por setor ──────────────────────────────────────────────────
     with st.expander("✨ Descobrir empresas por setor (recomendado)", expanded=not saved.get("empresas_greenhouse") and not saved.get("empresas_lever")):
@@ -335,10 +414,10 @@ def step_3():
         setores_input = ", ".join(setores_selecionados)
         cargos_hint = ", ".join(saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer"]))
 
-        if st.button("🔍 Descobrir empresas", type="primary", disabled=not setores_selecionados or not api_key):
-            with st.spinner(f"Consultando Gemini e validando slugs... (pode levar 1-2 minutos)"):
+        if st.button("🔍 Descobrir empresas", type="primary", disabled=not setores_selecionados or not tem_llm):
+            with st.spinner("Consultando Gemini e validando slugs... (pode levar 1-2 minutos)"):
                 try:
-                    resultado = _descobrir_empresas(setores_input, cargos_hint, api_key)
+                    resultado = _descobrir_empresas(setores_input, cargos_hint)
                     st.session_state["discover_result"] = resultado
                     st.session_state["discover_setores"] = setores_selecionados
                 except Exception as exc:
@@ -543,7 +622,7 @@ def step_4():
         "As credenciais ficam salvas localmente — nunca são enviadas a terceiros."
     )
 
-    from applicators.linkedin import has_session, check_session_valid, SESSION_PATH
+    from applicators.linkedin import SESSION_PATH, check_session_valid, has_session
 
     session_valid = has_session()
 
@@ -572,7 +651,7 @@ def step_4():
     if submit_li and li_email and li_password:
         with st.spinner("Fazendo login no LinkedIn... (pode levar até 30 segundos)"):
             try:
-                from applicators.linkedin import login_and_save_session, BLOCKED_MSG
+                from applicators.linkedin import BLOCKED_MSG, login_and_save_session
                 ok, msg = login_and_save_session(li_email, li_password, headless=True)
                 if ok:
                     cfg = config.load()

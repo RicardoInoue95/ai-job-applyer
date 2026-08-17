@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agents.gemini_client import GeminiClient
+    from agents.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ Retorne SOMENTE o JSON com os campos abaixo. Nunca invente informações — use
 }}"""
 
 
-def normalize(vaga, client: "GeminiClient") -> dict | None:
+def normalize(vaga, client: "LLMClient") -> dict | None:
     """Normaliza uma vaga via Gemini. Retorna o dict ou None em caso de erro."""
     titulo = getattr(vaga, "titulo", "") or ""
     empresa = getattr(vaga, "empresa", "") or ""

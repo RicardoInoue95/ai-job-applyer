@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 DATA_DIR = Path("data")
 CONFIG_PATH = DATA_DIR / "config.json"
 

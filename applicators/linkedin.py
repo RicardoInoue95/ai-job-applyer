@@ -1,7 +1,6 @@
 """Módulo — LinkedIn Easy Apply via Playwright (Phase 4)."""
 import logging
 import re
-import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,8 @@ def login_and_save_session(email: str, password: str, headless: bool = True) -> 
     Quando headless=True falha por detecção de bot, retorna (False, BLOCKED_MSG).
     Quando headless=False, abre browser visível e aguarda o usuário completar o login.
     """
-    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    from playwright.sync_api import TimeoutError as PWTimeout
+    from playwright.sync_api import sync_playwright
 
     SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -510,8 +510,10 @@ def collect_jobs(search_queries: list[str], location: str = "São Paulo, BR",
         logger.warning("Sessão LinkedIn não encontrada.")
         return []
 
-    from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     from urllib.parse import quote_plus
+
+    from playwright.sync_api import TimeoutError as PWTimeout
+    from playwright.sync_api import sync_playwright
 
     all_jobs: list[dict] = []
     seen_urls: set[str] = set()

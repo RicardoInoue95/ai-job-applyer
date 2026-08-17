@@ -1,0 +1,86 @@
+<!--
+  Formulário de candidatura Greenhouse reduzido ao essencial para teste.
+
+  Mantém a estrutura que os seletores de applicators/greenhouse.py esperam:
+  ids first_name/last_name/email/phone, input[type=file] para currículo, e um
+  react-select cujas opções recebem id no formato
+  react-select-<field_id>-option-<n>.
+
+  O <script> no fim reproduz o comportamento do react-select (opções só existem
+  no DOM depois do clique no controle). Sem isso o teste passaria por acidente,
+  encontrando as opções já renderizadas.
+-->
+<div id="application">
+  <h1>Analytics Engineer</h1>
+
+  <label for="first_name">Nome</label>
+  <input type="text" id="first_name" name="first_name">
+
+  <label for="last_name">Sobrenome</label>
+  <input type="text" id="last_name" name="last_name">
+
+  <label for="email">E-mail</label>
+  <input type="email" id="email" name="email">
+
+  <label for="phone">Telefone</label>
+  <input type="text" id="phone" name="phone">
+
+  <!-- Campo oculto: _pw_fill_text deve ignorar, não preencher -->
+  <input type="text" id="campo_oculto" style="display:none">
+
+  <label>Currículo</label>
+  <input type="file" id="resume" name="resume">
+
+  <label for="cover_letter_text">Carta de apresentação</label>
+  <textarea id="cover_letter_text" name="cover_letter_text"></textarea>
+
+  <!-- react-select: nível de inglês -->
+  <label>Nível de inglês</label>
+  <div class="select-shell">
+    <div id="question_1001" class="select__control" tabindex="0">Selecione...</div>
+  </div>
+
+  <!-- react-select com [] no id, formato que o Greenhouse usa em multi-select -->
+  <label>Estado</label>
+  <div class="select-shell">
+    <div id="question_2002[]" class="select__control" tabindex="0">Selecione...</div>
+  </div>
+
+  <button id="submit_app" type="button">Enviar candidatura</button>
+</div>
+
+<script>
+  // Reproduz react-select: opções aparecem só ao clicar no controle, com id
+  // no padrão react-select-<bare_id>-option-<n>.
+  const OPCOES = {
+    "question_1001": ["Básico", "Intermediário", "Avançado", "Fluente"],
+    "question_2002[]": ["São Paulo (SP)", "Rio de Janeiro (RJ)", "Paraná (PR)"],
+  };
+
+  Object.entries(OPCOES).forEach(([fieldId, labels]) => {
+    const controle = document.getElementById(fieldId);
+    const bare = fieldId.replace("[]", "");
+
+    controle.addEventListener("click", () => {
+      if (document.querySelector(`[id^="react-select-${bare}-option"]`)) return;
+
+      const menu = document.createElement("div");
+      menu.className = "select__menu";
+      menu.setAttribute("data-menu-for", bare);
+
+      labels.forEach((label, i) => {
+        const opcao = document.createElement("div");
+        opcao.id = `react-select-${bare}-option-${i}`;
+        opcao.textContent = label;
+        opcao.addEventListener("click", () => {
+          controle.textContent = label;
+          controle.setAttribute("data-valor-escolhido", label);
+          menu.remove();
+        });
+        menu.appendChild(opcao);
+      });
+
+      controle.parentElement.appendChild(menu);
+    });
+  });
+</script>

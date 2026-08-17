@@ -9,7 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agents.gemini_client import GeminiClient
+    from agents.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def _calc_ats_score(resume_techs: list[str], job_techs: list[str]) -> tuple[floa
     return round(score, 1), matched, missing
 
 
-def optimize(base_profile: dict, vaga, client: "GeminiClient") -> dict:
+def optimize(base_profile: dict, vaga, client: "LLMClient") -> dict:
     """Retorna dict com perfil otimizado + métricas ATS."""
     normalizado = getattr(vaga, "normalizado_json", None) or {}
     job_techs = normalizado.get("tecnologias", [])

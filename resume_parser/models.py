@@ -1,12 +1,12 @@
-from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
 class Experiencia(BaseModel):
     empresa: str
     cargo: str
-    data_inicio: Optional[str] = None
-    data_fim: Optional[str] = None
+    data_inicio: str | None = None
+    data_fim: str | None = None
     descricao: str = ""
     tecnologias: list[str] = Field(default_factory=list)
     conquistas: list[str] = Field(default_factory=list)
@@ -15,15 +15,15 @@ class Experiencia(BaseModel):
 class Formacao(BaseModel):
     instituicao: str
     curso: str
-    data_conclusao: Optional[str] = None
+    data_conclusao: str | None = None
     em_andamento: bool = False
 
 
 class Certificacao(BaseModel):
     nome: str
     emissor: str = ""
-    data: Optional[str] = None
-    link: Optional[str] = None
+    data: str | None = None
+    link: str | None = None
 
 
 class Idioma(BaseModel):
@@ -33,12 +33,12 @@ class Idioma(BaseModel):
 
 class ResumeJSON(BaseModel):
     nome: str
-    email: Optional[str] = None
-    telefone: Optional[str] = None
-    linkedin: Optional[str] = None
-    github: Optional[str] = None
-    localizacao: Optional[str] = None
-    resumo_profissional: Optional[str] = None
+    email: str | None = None
+    telefone: str | None = None
+    linkedin: str | None = None
+    github: str | None = None
+    localizacao: str | None = None
+    resumo_profissional: str | None = None
     experiencias: list[Experiencia] = Field(default_factory=list)
     formacao: list[Formacao] = Field(default_factory=list)
     certificacoes: list[Certificacao] = Field(default_factory=list)
@@ -50,9 +50,9 @@ class ResumeJSON(BaseModel):
 class PerfilBase(BaseModel):
     perfil: str
     nome: str
-    email: Optional[str] = None
-    linkedin: Optional[str] = None
-    localizacao: Optional[str] = None
+    email: str | None = None
+    linkedin: str | None = None
+    localizacao: str | None = None
     resumo_profissional: str = ""
     experiencias: list[Experiencia] = Field(default_factory=list)
     formacao: list[Formacao] = Field(default_factory=list)

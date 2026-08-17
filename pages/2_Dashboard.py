@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import streamlit as st
@@ -22,9 +21,10 @@ st.caption("AI Job Applier — visão geral")
 # ── Métricas ─────────────────────────────────────────────────────────────────
 
 try:
-    from database.connection import get_session
-    from database.models import Vaga, Candidatura
     from sqlalchemy import func
+
+    from database.connection import get_session
+    from database.models import Candidatura, Vaga
 
     with get_session() as session:
         total_vagas = session.query(func.count(Vaga.id)).scalar() or 0
@@ -344,9 +344,10 @@ st.divider()
 # ── Candidaturas ──────────────────────────────────────────────────────────────
 
 try:
+    from sqlalchemy import func
+
     from database.connection import get_session
     from database.models import Vaga
-    from sqlalchemy import func
 
     with get_session() as session:
         aprovadas_count = session.query(func.count(Vaga.id)).filter(Vaga.status == "aprovada").scalar() or 0
@@ -388,7 +389,7 @@ try:
                                 _V.status == "pendente",
                                 _V.score >= 65,
                             ).update({"status": "aprovada"})
-                        st.success(f"✓ Vagas re-avaliadas! Verifique os novos totais.")
+                        st.success("✓ Vagas re-avaliadas! Verifique os novos totais.")
                         st.rerun()
                     except Exception as exc:
                         st.error(f"Erro: {exc}")
@@ -443,9 +444,10 @@ st.divider()
 st.subheader("Distribuição por status")
 
 try:
+    from sqlalchemy import func
+
     from database.connection import get_session
     from database.models import Vaga
-    from sqlalchemy import func
 
     with get_session() as session:
         dist = (

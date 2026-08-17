@@ -1,4 +1,5 @@
 import streamlit as st
+
 from config.manager import ConfigManager
 
 st.set_page_config(
@@ -14,10 +15,12 @@ if not config.is_setup_complete():
 st.title("📋 Vagas")
 
 try:
-    from database.connection import get_session
-    from database.models import Vaga, AprovacoesHistorico
-    from sqlalchemy import func
     from datetime import datetime
+
+    from sqlalchemy import func
+
+    from database.connection import get_session
+    from database.models import AprovacoesHistorico, Vaga
 except Exception as exc:
     st.error(f"Erro ao conectar ao banco: {exc}")
     st.stop()

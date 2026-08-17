@@ -76,9 +76,9 @@ def _esc(text) -> str:
 
 
 def _make_styles():
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
     from reportlab.lib.colors import HexColor
+    from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT
+    from reportlab.lib.styles import ParagraphStyle
 
     return {
         "name":       ParagraphStyle("name",    fontName="Helvetica-Bold", fontSize=22,
@@ -163,9 +163,9 @@ def _render_description(desc, styles) -> list:
 
 def _section_bar(label: str, styles, doc_width):
     """Faixa com barra azul à esquerda e fundo cinza muito suave."""
-    from reportlab.platypus import Table, TableStyle, Paragraph
     from reportlab.lib.colors import HexColor
     from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, Table, TableStyle
 
     bar  = Table([[""]], colWidths=[0.35*cm])
     bar.setStyle(TableStyle([
@@ -191,9 +191,8 @@ def _section_bar(label: str, styles, doc_width):
 
 def _exp_header(cargo, empresa, inicio, fim, styles, doc_width):
     """Linha: cargo + empresa (esquerda) | datas (direita) — largura fixa correta."""
-    from reportlab.platypus import Table, TableStyle, Paragraph
-    from reportlab.lib.colors import HexColor
     from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, Table, TableStyle
 
     date_str = f"{_esc(inicio)} – {_esc(fim) or 'Presente'}"
     date_w = 3.6 * cm          # largura real em pontos
@@ -218,9 +217,9 @@ def _exp_header(cargo, empresa, inicio, fim, styles, doc_width):
 
 def _tech_table(groups, styles, doc_width):
     """Tabela 2 colunas: categoria (bold) | valores."""
-    from reportlab.platypus import Table, TableStyle, Paragraph
     from reportlab.lib.colors import HexColor
     from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, Table, TableStyle
 
     cat_w = 3.8 * cm
     val_w = doc_width - cat_w
@@ -249,13 +248,18 @@ def _tech_table(groups, styles, doc_width):
 # ── Gerador principal ─────────────────────────────────────────────────────────
 
 def generate_pdf(resume: dict, output_path: Path) -> Path:
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable, KeepTogether,
-    )
-    from reportlab.lib.units import cm
     from reportlab.lib.colors import HexColor
     from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.platypus import (
+        HRFlowable,
+        KeepTogether,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -419,7 +423,6 @@ def generate_pdf(resume: dict, output_path: Path) -> Path:
                     right_items.append(Spacer(1, 2))
 
         if left_items and right_items:
-            from reportlab.platypus import BalancedColumns
             half = DOC_W / 2 - 0.3 * cm
             try:
                 col_tbl = Table(

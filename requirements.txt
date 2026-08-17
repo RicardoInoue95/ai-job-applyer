@@ -1,14 +1,36 @@
-streamlit>=1.35
-sqlalchemy>=2.0
-alembic>=1.13
-psycopg2-binary>=2.9
-playwright>=1.44
-apscheduler[sqlalchemy]>=3.10
-google-genai>=1.0
-pydantic>=2.0
-pdfplumber>=0.11
-python-docx>=1.1
-xhtml2pdf>=0.2
-structlog>=24.0
+# ── Web / UI ─────────────────────────────────────────────────────────────────
+streamlit>=1.35            # UI multi-page (descartável por design, ver CLAUDE.md)
+
+# ── Banco ────────────────────────────────────────────────────────────────────
+sqlalchemy>=2.0            # ORM, estilo 2.0 (Mapped/mapped_column)
+alembic>=1.13              # migrations versionadas
+psycopg2-binary>=2.9       # driver PostgreSQL
+
+# ── Automação de browser ─────────────────────────────────────────────────────
+playwright>=1.44           # candidatura em Greenhouse/LinkedIn/Gupy
+
+# ── Agendamento ──────────────────────────────────────────────────────────────
+apscheduler[sqlalchemy]>=3.10   # jobs periódicos com jobstore no Postgres
+
+# ── Provedores de LLM ────────────────────────────────────────────────────────
+# Instale ao menos um. agents/llm importa cada SDK de forma tardia, então o
+# projeto roda com apenas o provedor que você usa.
+google-genai>=1.0          # Gemini
+openai>=1.0                # OpenAI / ChatGPT
+anthropic>=0.40            # Claude
+
+# ── Parsing de currículo ─────────────────────────────────────────────────────
+pydantic>=2.0              # validação de schema do ResumeJSON
+pdfplumber>=0.11           # extração de texto de PDF
+python-docx>=1.1           # extração de texto de DOCX
+xhtml2pdf>=0.2             # geração do PDF do currículo otimizado
+
+# ── Utilitários ──────────────────────────────────────────────────────────────
+requests>=2.31             # APIs de Greenhouse/Lever/Gupy
+structlog>=24.0            # logging estruturado (a adotar na Fase 1)
 click>=8.0
-requests>=2.31
+
+# ── Desenvolvimento ──────────────────────────────────────────────────────────
+pytest>=8.0
+pytest-asyncio>=0.23       # testes de Playwright async
+ruff>=0.6                  # lint + format

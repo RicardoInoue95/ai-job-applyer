@@ -1,6 +1,8 @@
 from datetime import datetime
+
 from sqlalchemy.orm import Session
-from .models import Vaga, Candidatura, CacheGemini
+
+from .models import CacheGemini, Vaga
 
 
 class VagaRepository:

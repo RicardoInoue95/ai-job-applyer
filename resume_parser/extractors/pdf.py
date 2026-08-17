@@ -1,7 +1,10 @@
 from pathlib import Path
+
 import pdfplumber
-from .base import BaseExtractor
+
 from resume_parser.exceptions import ExtractionError
+
+from .base import BaseExtractor
 
 
 class PDFExtractor(BaseExtractor):

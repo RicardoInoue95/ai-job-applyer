@@ -72,6 +72,39 @@ def _garantir_env() -> None:
         carregar_env()
 
 
+def gravar_env(nome_env: str, valor: str, path: Path = ENV_PATH) -> None:
+    """Grava/atualiza uma chave no .env e no processo atual.
+
+    Usado pelo wizard do Streamlit: chave de API digitada na UI vai para o .env
+    (fora do git) em vez de data/config.json em texto plano. Preserva comentários
+    e a ordem das linhas existentes.
+    """
+    chave_completa = f"{PREFIXO}{nome_env}"
+    linha_nova = f"{chave_completa}={valor}"
+
+    linhas: list[str] = []
+    if path.exists():
+        linhas = path.read_text(encoding="utf-8-sig").splitlines()
+
+    for i, linha in enumerate(linhas):
+        nua = linha.strip()
+        if nua.startswith("export "):
+            nua = nua[len("export "):].strip()
+        if nua.split("=", 1)[0].strip() == chave_completa:
+            linhas[i] = linha_nova
+            break
+    else:
+        if linhas and linhas[-1].strip():
+            linhas.append("")
+        linhas.append(linha_nova)
+
+    path.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+
+    # Reflete de imediato no processo, para não exigir restart do Streamlit.
+    os.environ[chave_completa] = valor
+    logger.info("Segredo %s gravado em %s", chave_completa, path)
+
+
 def obter(
     nome_env: str,
     *caminho_config: str,

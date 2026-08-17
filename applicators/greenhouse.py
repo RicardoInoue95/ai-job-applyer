@@ -1,7 +1,6 @@
 """Módulo 13 — Candidatura via Greenhouse usando Playwright (form submission real)."""
 import logging
 import re
-import time
 from pathlib import Path
 
 import requests
@@ -152,13 +151,16 @@ def _auto_answer(
     if any(k in label_lower for k in ["cidade", "reside", "onde você mora"]):
         loc = resume.get("localizacao", "").lower()
         if "são paulo" in loc:
+            # Duas passadas, exato antes de prefixo. Uma passada única aceitando
+            # ambos deixava a ordem da lista decidir: um "São Paulo - Zona Sul"
+            # listado antes do "São Paulo" simples ganhava, respondendo um
+            # bairro que o currículo não informa.
+            exatos = {"são paulo", "sao paulo", "são paulo (sp)", "sao paulo (sp)"}
             for v in values:
-                vlabel = v.get("label", "").strip().lower()
-                if vlabel in ("são paulo", "sao paulo", "são paulo (sp)") or vlabel.startswith("são paulo -"):
+                if v.get("label", "").strip().lower() in exatos:
                     return str(v.get("value", ""))
             for v in values:
-                vlabel = v.get("label", "").strip().lower()
-                if vlabel.startswith("são paulo") or vlabel.startswith("sao paulo"):
+                if v.get("label", "").strip().lower().startswith(("são paulo", "sao paulo")):
                     return str(v.get("value", ""))
         return None
 
@@ -170,20 +172,32 @@ def _auto_answer(
 
     if any(k in label_lower for k in ["inglês", "ingles", "english", "fluência", "fluencia", "língua inglesa"]):
         idiomas = resume.get("idiomas", [])
-        for idioma in idiomas:
-            nome = idioma.get("nome", "").lower()
-            if "inglês" in nome or "english" in nome:
-                nivel = idioma.get("nivel", "").lower()
-                nivel_map = {
-                    "básico": "Básico", "intermediário": "Intermediário",
-                    "avançado": "Avançado", "fluente": "Fluente", "nativo": "Nativo",
-                }
-                for k, v in nivel_map.items():
-                    if k in nivel:
-                        return _pick_value(values, v) or v
-                return _pick_value(values, "Intermediário") or "Intermediário"
+        entrada_ingles = next(
+            (i for i in idiomas
+             if "inglês" in (i.get("nome") or "").lower()
+             or "english" in (i.get("nome") or "").lower()),
+            None,
+        )
+
+        # Campo Sim/Não é resolvido ANTES do mapeamento de nível. Quando a
+        # verificação vinha depois do loop, um currículo com inglês devolvia
+        # "Avançado" para um campo Sim/Não — valor que não casa com nenhuma
+        # opção, deixando o campo em branco. E sem inglês no currículo o código
+        # respondia "Sim", o que é afirmar algo que o currículo não sustenta.
         if _is_yes_no(field_type, values):
-            return _yes_value(values)
+            return _yes_value(values) if entrada_ingles else _no_value(values)
+
+        if entrada_ingles:
+            nivel = (entrada_ingles.get("nivel") or "").lower()
+            nivel_map = {
+                "básico": "Básico", "intermediário": "Intermediário",
+                "avançado": "Avançado", "fluente": "Fluente", "nativo": "Nativo",
+            }
+            for k, v in nivel_map.items():
+                if k in nivel:
+                    return _pick_value(values, v) or v
+            return _pick_value(values, "Intermediário") or "Intermediário"
+
         return _pick_value(values, "Intermediário")
 
     if any(k in label_lower for k in ["etl", "elt", "pipeline de dados"]):
@@ -429,6 +443,7 @@ def _pw_select_react(page, field_id: str, label_text: str, timeout: int = 4000) 
 def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     """Submete candidatura via Playwright (form submission real no Greenhouse)."""
     from playwright.sync_api import sync_playwright
+
     from config.manager import ConfigManager
     config_dados = ConfigManager().get("dados_pessoais") or {}
 
@@ -629,7 +644,7 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
             content = page.content().lower()
             success = ("confirmação" in content or "obrigado" in content
                        or "confirmation" in final_url or "thank" in content
-                       or "candidatura" in content and "enviada" in content)
+                       or ("candidatura" in content and "enviada" in content))
 
         # Captura possíveis erros de validação
         validation_errors = []

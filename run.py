@@ -1,7 +1,7 @@
+import os
 import subprocess
 import sys
 import time
-import os
 
 DATABASE_URL = "postgresql://jobapplier:jobapplier@localhost:5432/jobapplier"
 

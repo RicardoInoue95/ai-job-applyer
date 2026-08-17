@@ -23,9 +23,10 @@ def send_daily_report(email_config: dict) -> tuple[bool, str]:
 
 def _collect_stats() -> dict:
     """Coleta estatísticas do banco para as últimas 24 horas."""
+    from sqlalchemy import func
+
     from database.connection import get_session
     from database.models import Candidatura, Vaga
-    from sqlalchemy import func
 
     since = datetime.utcnow() - timedelta(hours=24)
 

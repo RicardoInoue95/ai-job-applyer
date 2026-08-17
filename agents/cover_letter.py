@@ -1,10 +1,9 @@
 """Módulo 6 — Geração de Cover Letter personalizada."""
-import json
 import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agents.gemini_client import GeminiClient
+    from agents.llm import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ Escreva uma carta de apresentação profissional em português com:
 Retorne SOMENTE o texto da carta, sem assunto, sem cabeçalho, sem assinatura."""
 
 
-def generate(resume_json: dict, vaga, client: "GeminiClient") -> str | None:
+def generate(resume_json: dict, vaga, client: "LLMClient") -> str | None:
     """Gera cover letter personalizada. Retorna texto ou None em caso de erro."""
     normalizado = getattr(vaga, "normalizado_json", None) or {}
 

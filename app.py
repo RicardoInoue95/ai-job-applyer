@@ -1,4 +1,5 @@
 import streamlit as st
+
 from config.manager import ConfigManager
 
 st.set_page_config(

@@ -1,3 +1,3 @@
-from .models import ResumeJSON, PerfilBase
+from .models import PerfilBase, ResumeJSON
 
-__all__ = ["ResumeJSON", "PerfilBase"]
+__all__ = ["PerfilBase", "ResumeJSON"]

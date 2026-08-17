@@ -4,12 +4,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from config import secrets
-from config.manager import ConfigManager
+from collectors.base import CollectedJob
 from collectors.greenhouse import GreenhouseCollector
 from collectors.lever import LeverCollector
-from collectors.base import CollectedJob
-from database.connection import get_session, DATABASE_URL
+from config import secrets
+from config.manager import ConfigManager
+from database.connection import DATABASE_URL, get_session
 from database.models import Vaga
 from database.repository import VagaRepository
 
@@ -97,7 +97,8 @@ def run_collection():
 
     # LinkedIn (se sessão configurada)
     try:
-        from applicators.linkedin import has_session, collect_jobs as li_collect_jobs
+        from applicators.linkedin import collect_jobs as li_collect_jobs
+        from applicators.linkedin import has_session
         if has_session():
             li_queries = config.get("linkedin", "search_queries") or ["Data Engineer", "Analytics Engineer"]
             if isinstance(li_queries, str):
@@ -147,12 +148,12 @@ def run_pipeline():
     threshold_excelente = int(scoring_config.get("threshold_excelente", 65))
     threshold_bom = int(scoring_config.get("threshold_bom", 45))
 
-    from agents.gemini_client import GeminiClient
+    from agents.llm import get_client
     from agents.normalizer import normalize
     from agents.scorer import score
-    from filters import pre_filter, post_filter
+    from filters import post_filter, pre_filter
 
-    client = GeminiClient(api_key=api_key, use_cache=True)
+    client = get_client(config=config, use_cache=True)
 
     with get_session() as session:
         vagas_novas = (
@@ -266,18 +267,17 @@ def run_applications():
 
     resume_json = json.loads(resume_path.read_text(encoding="utf-8"))
 
-    from agents.gemini_client import GeminiClient
-    from agents.resume_optimizer import optimize
-    from agents.cover_letter import generate as gen_cover_letter
-    from generators.pdf import generate_pdf
-    from applicators import greenhouse as gh_applicator
-    import applicators.linkedin as li_applicator
     import applicators.gupy as gupy_applicator
+    import applicators.linkedin as li_applicator
+    from agents.cover_letter import generate as gen_cover_letter
+    from agents.llm import get_client
+    from agents.resume_optimizer import optimize
+    from applicators import greenhouse as gh_applicator
     from database.models import Candidatura
-
+    from generators.pdf import generate_pdf
     from safety import guard
 
-    client = GeminiClient(api_key=api_key, use_cache=True)
+    client = get_client(config=config, use_cache=True)
 
     cfg = config.load()
     risco_cfg = cfg.get("risco") or {}
@@ -453,8 +453,8 @@ def run_applications():
 
 def main():
     try:
-        from apscheduler.schedulers.blocking import BlockingScheduler
         from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+        from apscheduler.schedulers.blocking import BlockingScheduler
 
         jobstores = {"default": SQLAlchemyJobStore(url=DATABASE_URL)}
 

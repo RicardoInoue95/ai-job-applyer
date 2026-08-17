@@ -2,11 +2,9 @@ import json
 import logging
 from pathlib import Path
 
-from agents.gemini_client import GeminiClient
-from resume_parser.exceptions import ResumeParserError
 from resume_parser.extractors import get_extractor
 from resume_parser.models import PerfilBase, ResumeJSON
-from resume_parser.parsers import GeminiResumeParser
+from resume_parser.parsers import LLMResumeParser
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +35,33 @@ NÃO invente informações — use apenas o que está no currículo original.
 
 
 class ResumePipeline:
-    def __init__(self, api_key: str):
-        self.client = GeminiClient(api_key=api_key, use_cache=True)
-        self.parser = GeminiResumeParser(self.client)
+    """Extrai currículo de arquivo e gera os perfis base, via provedor configurado.
+
+    ``client`` explícito tem precedência. Sem ele, resolve o provedor por
+    config/ambiente. ``provedor`` e ``modelo`` permitem forçar um específico —
+    útil para usar um modelo mais capaz só na extração de currículo, que é uma
+    operação única, e o barato no resto do pipeline.
+    """
+
+    def __init__(
+        self,
+        client=None,
+        provedor: str | None = None,
+        modelo: str | None = None,
+        api_key: str | None = None,
+    ):
+        if client is None:
+            from agents.llm import get_client
+
+            client = get_client(provedor=provedor, modelo=modelo, use_cache=True)
+        self.client = client
+        self.parser = LLMResumeParser(self.client)
+
+        if api_key:
+            logger.warning(
+                "ResumePipeline(api_key=...) está depreciado e foi ignorado. "
+                "A chave vem de AIJOB_<PROVEDOR>_API_KEY via config.secrets."
+            )
 
     def parse_file(self, file_path: Path) -> ResumeJSON:
         extractor = get_extractor(file_path)

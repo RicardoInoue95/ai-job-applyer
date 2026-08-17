@@ -23,7 +23,7 @@ class CollectedJob:
 
     def __post_init__(self):
         self.hash = hashlib.sha256(
-            f"{self.titulo}{self.empresa}{self.link}".encode("utf-8")
+            f"{self.titulo}{self.empresa}{self.link}".encode()
         ).hexdigest()
 
 

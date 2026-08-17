@@ -1,3 +1,4 @@
-from .gemini import GeminiResumeParser
+from .base import BaseResumeParser
+from .llm import GeminiResumeParser, LLMResumeParser
 
-__all__ = ["GeminiResumeParser"]
+__all__ = ["BaseResumeParser", "GeminiResumeParser", "LLMResumeParser"]

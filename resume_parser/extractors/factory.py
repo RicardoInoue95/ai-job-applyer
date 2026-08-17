@@ -1,8 +1,10 @@
 from pathlib import Path
-from .base import BaseExtractor
-from .pdf import PDFExtractor
-from .docx import DOCXExtractor
+
 from resume_parser.exceptions import UnsupportedFormatError
+
+from .base import BaseExtractor
+from .docx import DOCXExtractor
+from .pdf import PDFExtractor
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx"}
 

@@ -8,7 +8,6 @@ import pytest
 
 from safety import guard
 
-
 # ── limite_diario ─────────────────────────────────────────────────────────────
 
 def test_limite_padrao_por_plataforma():

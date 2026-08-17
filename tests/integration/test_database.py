@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pytest
 
-from database.connection import get_session, DATABASE_URL
+from database.connection import DATABASE_URL, get_session
 from database.models import Vaga
 from database.repository import VagaRepository
 

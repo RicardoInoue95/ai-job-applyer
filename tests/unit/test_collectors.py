@@ -1,10 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from collectors.greenhouse import GreenhouseCollector
 from collectors.lever import LeverCollector
-
 
 GREENHOUSE_RESPONSE = {
     "jobs": [

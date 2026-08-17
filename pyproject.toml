@@ -1,0 +1,55 @@
+# Sem [project]/[build-system] de propósito: o projeto é uma aplicação executada
+# in-place, não um pacote distribuível. Este arquivo existe para configurar
+# ferramentas.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Marcadores 'live' saem por padrão: tocam rede/site de terceiros e não devem
+# rodar em suíte automática. Habilite com: pytest -m live
+addopts = "-m 'not live' --strict-markers -q"
+markers = [
+    "e2e: usa Playwright real contra HTML local (sem rede). Exige browser instalado.",
+    "live: toca rede ou site de terceiros. NUNCA roda por padrão nem em CI.",
+    "db: exige PostgreSQL de pé.",
+]
+filterwarnings = [
+    "error::DeprecationWarning:agents.*",
+    "error::DeprecationWarning:safety.*",
+    "default",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "data", "database/migrations/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes — variável/import não usado, f-string sem placeholder
+    "I",        # isort — ordenação de imports
+    "UP",       # pyupgrade — sintaxe moderna
+    "B",        # bugbear — armadilhas reais (mutable default, except cego)
+    "DTZ",      # datetime sem timezone — o projeto já tem essa dívida
+    "SIM",      # simplificações
+    "RUF",      # regras do próprio ruff
+]
+ignore = [
+    "E501",     # comprimento de linha: formatter cuida
+    "B008",     # chamada em default de argumento (padrão comum no FastAPI/Streamlit)
+    "SIM108",   # ternário obrigatório prejudica legibilidade em alguns casos
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testes podem usar assert, nomes longos e imports locais à vontade.
+"tests/**" = ["B011", "E402"]
+# Streamlit exige set_page_config antes de qualquer outro comando, o que força
+# imports depois de código.
+"pages/**" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "agents", "applicators", "collectors", "config", "database",
+    "filters", "generators", "notifications", "resume_parser", "safety",
+]
