@@ -311,7 +311,7 @@ def run_applications():
 
     logger.info("Fila de candidatura: %d vagas (status: %s)", len(vagas_aprovadas), status_alvo)
 
-    enviadas_neste_ciclo = 0
+    processadas_neste_ciclo = 0
 
     for vaga in vagas_aprovadas:
         plataforma = (vaga.plataforma or "").lower()
@@ -346,11 +346,11 @@ def run_applications():
             continue
 
         # ── Espera humana entre candidaturas ─────────────────────────────────
-        if enviadas_neste_ciclo > 0:
+        if processadas_neste_ciclo > 0:
             guard.espera_humana(cfg, contexto=plataforma)
 
         logger.info("Processando vaga id=%d '%s'", vaga.id, vaga.titulo[:50])
-        enviadas_neste_ciclo += 1
+        processadas_neste_ciclo += 1
 
         # Marca como em andamento
         with get_session() as session:
