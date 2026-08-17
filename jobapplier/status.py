@@ -61,6 +61,10 @@ VAGA: tuple[Status, ...] = (
            "O formulário tem um tipo de campo que a automação não trata", "bloqueada"),
     Status("sem_automacao", "Plataforma sem automação",
            "Não há applicator para esta plataforma", "bloqueada"),
+    # Legado: nome anterior de 'aguardando_revisao'. 49 vagas ainda o usam, e
+    # sem entrada aqui elas apareciam como "não catalogado" na interface.
+    Status("aguardando_resposta", "Confirmação inconclusiva (legado)",
+           "Registro anterior à mudança de vocabulário", "acao", "aviso"),
     # Desfechos
     Status("candidatada", "Candidatada", "Envio confirmado pela plataforma",
            "concluida", "bom"),

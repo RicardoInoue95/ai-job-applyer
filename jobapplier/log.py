@@ -157,6 +157,7 @@ def execucao(tipo: str, persistir: bool = True, **extra):
     execucao_id = None
 
     if persistir:
+        fechar_execucoes_orfas()
         execucao_id = _abrir_execucao(run_id, tipo, inicio)
 
     logger = structlog.get_logger("jobapplier.execucao")
@@ -180,6 +181,54 @@ def execucao(tipo: str, persistir: bool = True, **extra):
         structlog.contextvars.unbind_contextvars(
             "run_id", "execucao", *extra.keys()
         )
+
+
+#: Uma esteira que passa disto quase certamente morreu com o processo. A coleta
+#: completa leva minutos; candidaturas, com espera humana entre elas, mais.
+HORAS_ATE_ORFA = 6
+
+
+def fechar_execucoes_orfas() -> int:
+    """Marca como interrompidas as execuções que ficaram penduradas.
+
+    Processo morto no meio (Ctrl+C, timeout, crash) deixa a linha em
+    'em_andamento' para sempre — o `finally` do context manager nunca roda. Sem
+    isto, o histórico de execuções acumula lixo que parece trabalho em curso, e
+    a pergunta "o que rodou ontem" fica sem resposta confiável.
+
+    Chamado no início de cada execução: se outra está pendurada há horas, ela
+    não está mais viva.
+    """
+    from datetime import timedelta
+
+    from jobapplier.database.connection import get_session
+    from jobapplier.database.models import Execucao
+    from jobapplier.tempo import agora_utc
+
+    limite = agora_utc() - timedelta(hours=HORAS_ATE_ORFA)
+    try:
+        with get_session() as session:
+            fechadas = (
+                session.query(Execucao)
+                .filter(
+                    Execucao.status == "em_andamento",
+                    Execucao.iniciado_em < limite,
+                )
+                .update(
+                    {"status": "interrompida",
+                     "erro": "processo encerrado sem concluir a execução"},
+                    synchronize_session=False,
+                )
+            )
+        if fechadas:
+            logging.getLogger(__name__).warning(
+                "%d execução(ões) pendurada(s) marcada(s) como interrompida(s).",
+                fechadas,
+            )
+        return fechadas
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Não foi possível fechar órfãs: %s", exc)
+        return 0
 
 
 def _abrir_execucao(run_id: str, tipo: str, inicio) -> int | None:
