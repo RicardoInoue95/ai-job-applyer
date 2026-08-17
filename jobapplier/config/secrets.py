@@ -155,7 +155,7 @@ def gemini_api_key(config=None) -> str | None:
 def database_url(config=None) -> str:
     return (
         obter("DATABASE_URL", "database_url", config=config)
-        or "postgresql://jobapplier:jobapplier@localhost:5432/jobapplier"
+        or "postgresql://jobapplier:jobapplier@localhost:55432/jobapplier"
     )
 
 

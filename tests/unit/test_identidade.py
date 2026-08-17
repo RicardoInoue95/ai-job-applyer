@@ -222,3 +222,41 @@ def test_verificar_nunca_levanta_com_banco_fora():
 
     estado = verificar()
     assert isinstance(estado.em_head, bool)
+
+
+def test_codigo_distingue_banco_fora_de_schema_atrasado():
+    """Subir o banco e rodar a migration são ações diferentes."""
+    from jobapplier.database.schema import EstadoSchema
+
+    fora = EstadoSchema(aplicada=None, esperada="005", acessivel=False, detalhe="recusada")
+    atrasado = EstadoSchema(aplicada="003", esperada="005", acessivel=True)
+    vazio = EstadoSchema(aplicada=None, esperada="005", acessivel=True)
+    em_dia = EstadoSchema(aplicada="005", esperada="005", acessivel=True)
+
+    assert fora.codigo == "banco_inacessivel"
+    assert atrasado.codigo == "schema_desatualizado"
+    assert vazio.codigo == "schema_nao_inicializado"
+    assert em_dia.codigo == "ok"
+    assert len({fora.codigo, atrasado.codigo, vazio.codigo}) == 3
+
+
+def test_banco_esperado_e_tabelas_de_assinatura_declarados():
+    """Trava contra o quase-acidente: outro projeto ocupava a porta 5432 e o
+    DATABASE_URL apontava para lá. Um upgrade teria migrado base alheia."""
+    from jobapplier.database import schema
+
+    assert schema.BANCO_ESPERADO == "jobapplier"
+    assert {"vagas", "candidaturas"} <= schema.TABELAS_ASSINATURA
+
+
+def test_porta_do_projeto_nao_e_a_padrao():
+    """5432 é disputada. O compose e os defaults usam 55432 no host."""
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[2]
+    compose = (raiz / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "55432:5432" in compose
+
+    from jobapplier.config import secrets
+
+    assert "55432" in secrets.database_url()

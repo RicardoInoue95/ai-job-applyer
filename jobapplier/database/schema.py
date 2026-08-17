@@ -28,6 +28,18 @@ class EstadoSchema:
     detalhe: str = ""
 
     @property
+    def codigo(self) -> str:
+        """Motivo do bloqueio, em código. Inacessível e desatualizado exigem
+        ações diferentes: subir o banco versus rodar a migration."""
+        if not self.acessivel:
+            return "banco_inacessivel"
+        if self.aplicada is None:
+            return "schema_nao_inicializado"
+        if not self.em_head:
+            return "schema_desatualizado"
+        return "ok"
+
+    @property
     def em_head(self) -> bool:
         return self.acessivel and self.aplicada is not None and self.aplicada == self.esperada
 
@@ -80,6 +92,58 @@ def revisao_aplicada() -> tuple[str | None, bool, str]:
             return MigrationContext.configure(conn).get_current_revision(), True, ""
     except Exception as exc:
         return None, False, str(exc)
+
+
+#: Nome do banco deste projeto. Migrar qualquer outro é acidente grave.
+BANCO_ESPERADO = "jobapplier"
+
+#: Tabelas que identificam o banco como sendo deste projeto.
+TABELAS_ASSINATURA = frozenset({"vagas", "candidaturas"})
+
+
+def confirmar_identidade() -> tuple[bool, str]:
+    """Confere que estamos falando com o banco DESTE projeto, não com outro.
+
+    Nasceu de um quase-acidente: a máquina tinha outro projeto ocupando a porta
+    5432, e `DATABASE_URL` apontava para lá. Um `alembic upgrade head` teria
+    tentado migrar a base de outro sistema. Só a senha não bater impediu.
+
+    Duas checagens, porque nenhuma sozinha basta: o nome do banco (barato, mas
+    um banco vazio chamado 'jobapplier' passaria) e a presença das tabelas de
+    assinatura (que distingue banco novo de banco de terceiro).
+    """
+    from sqlalchemy import inspect, text
+
+    from jobapplier.database.connection import get_engine
+
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            nome = conn.execute(text("SELECT current_database()")).scalar()
+        tabelas = set(inspect(engine).get_table_names())
+    except Exception as exc:
+        return False, f"não foi possível identificar o banco: {exc}"
+
+    if nome != BANCO_ESPERADO:
+        return False, (
+            f"conectado ao banco '{nome}', esperado '{BANCO_ESPERADO}'. "
+            "Confira AIJOB_DATABASE_URL — apontar para o banco de outro projeto "
+            "e rodar migration destruiria dados alheios."
+        )
+
+    conhecidas = TABELAS_ASSINATURA | {"alembic_version", "empresas",
+                                       "aprovacoes_historico", "cache_gemini",
+                                       "execucoes", "apscheduler_jobs"}
+    estranhas = tabelas - conhecidas
+    if tabelas and not (TABELAS_ASSINATURA & tabelas) and estranhas:
+        return False, (
+            f"banco '{nome}' tem tabelas desconhecidas ({sorted(estranhas)[:5]}) e "
+            "nenhuma deste projeto. Provavelmente é o banco de outro sistema."
+        )
+
+    if not tabelas:
+        return True, f"banco '{nome}' vazio — pronto para a primeira migration"
+    return True, f"banco '{nome}' confirmado ({len(tabelas)} tabelas)"
 
 
 def verificar() -> EstadoSchema:

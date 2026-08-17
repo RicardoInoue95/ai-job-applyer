@@ -215,3 +215,82 @@ def test_apenas_um_cenario_de_submissao_confirma():
     """Confirmação tem de ser exceção bem provada, não o caso comum."""
     confirmados = [c for c in SUBMISSAO if c.status_esperado == "enviada_confirmada"]
     assert len(confirmados) == 1
+
+
+# ── O número nunca pode contradizer o gate ────────────────────────────────────
+
+def test_cobertura_de_opcionais_nunca_compensa_obrigatoria_faltando():
+    """Regressão real da média ponderada 0.8/0.2.
+
+    Um formulário com 9/10 obrigatórias e TODAS as opcionais pontuava 0.92,
+    acima dos 0.80 de um formulário com todas as obrigatórias e nenhuma
+    opcional — quando o segundo é o único dos dois que pode ser submetido.
+    """
+    from jobapplier.applicators.descoberta import (
+        Descoberta,
+        StatusDescoberta,
+        montar_avaliacao,
+    )
+
+    ok = Descoberta(StatusDescoberta.SUCESSO, http_status=200)
+    completo = montar_avaliacao(
+        "greenhouse", ok,
+        obrigatorias_conhecidas=["r1", "r2"],
+        opcionais_desconhecidas=[f"o{i}" for i in range(5)],
+    )
+    incompleto = montar_avaliacao(
+        "greenhouse", ok,
+        obrigatorias_conhecidas=[f"r{i}" for i in range(9)],
+        obrigatorias_desconhecidas=["r9"],
+        opcionais_conhecidas=["o1", "o2"],
+    )
+
+    assert completo["application_confidence"] > incompleto["application_confidence"]
+    assert completo["automation_eligible"]
+    assert not incompleto["automation_eligible"]
+
+
+def test_faixas_de_confianca_nao_se_sobrepoem():
+    """Com obrigatória faltando o teto é 0.5; sem faltar, o piso é 0.8."""
+    from jobapplier.applicators.descoberta import (
+        Descoberta,
+        StatusDescoberta,
+        montar_avaliacao,
+    )
+
+    ok = Descoberta(StatusDescoberta.SUCESSO, http_status=200)
+    melhor_incompleto = montar_avaliacao(
+        "greenhouse", ok,
+        obrigatorias_conhecidas=[f"r{i}" for i in range(99)],
+        obrigatorias_desconhecidas=["r99"],
+        opcionais_conhecidas=["o1"],
+    )
+    pior_completo = montar_avaliacao(
+        "greenhouse", ok,
+        obrigatorias_conhecidas=["r1"],
+        opcionais_desconhecidas=[f"o{i}" for i in range(50)],
+    )
+    assert melhor_incompleto["application_confidence"] <= 0.5
+    assert pior_completo["application_confidence"] >= 0.8
+
+
+@pytest.mark.parametrize("cenario", TODOS, ids=IDS)
+def test_elegibilidade_e_booleana_e_coerente_com_a_prontidao(cenario, api):
+    """`automation_eligible` é o gate; nenhuma aritmética pode torná-lo True
+    com obrigatória desconhecida ou bloqueador."""
+    api(cenario)
+    a = _avaliar(cenario)
+    assert isinstance(a["automation_eligible"], bool)
+    if a["automation_eligible"]:
+        assert a["application_readiness"] == Prontidao.PRONTA, cenario.id
+        assert a["unknown_required"] == 0, cenario.id
+        assert not a["blockers"], cenario.id
+
+
+def test_coberturas_expostas_separadamente(api):
+    """Para ninguém ter de reinterpretar o número composto depois."""
+    cenario = next(c for c in TODOS if c.grupo == "suportado")
+    api(cenario)
+    a = _avaliar(cenario)
+    assert a["required_coverage"] == 1.0
+    assert a["optional_coverage"] is not None

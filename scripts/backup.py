@@ -73,8 +73,61 @@ def criar() -> Path:
     mb = saida.stat().st_size / 1024 / 1024
     print(f"  {saida.name}  ({mb:.2f} MB, {len(r.stdout) / 1024 / 1024:.2f} MB sem compressão)")
 
+    ok, detalhe = validar(saida)
+    print(f"  validação: {detalhe}")
+    if not ok:
+        saida.unlink(missing_ok=True)
+        sys.exit("Backup inválido foi descartado. NÃO prossiga com a migration.")
+
     _aplicar_retencao()
     return saida
+
+
+#: Tabelas presentes desde a migration 001, portanto em qualquer dump válido.
+#: NÃO inclua tabelas de migrations posteriores: o backup mais importante é
+#: justamente o de ANTES do upgrade, quando elas ainda não existem.
+TABELAS_ESPERADAS = (
+    "vagas", "candidaturas", "empresas", "aprovacoes_historico", "cache_gemini",
+)
+
+
+def validar(caminho: Path) -> tuple[bool, str]:
+    """Confere que o dump é legível e contém o schema esperado.
+
+    "Comando finalizado com código 0" não garante backup recuperável: pg_dump
+    pode gravar um arquivo truncado, ou o gzip pode corromper. Aqui o arquivo é
+    descomprimido de verdade e conferido contra as tabelas que precisam existir.
+
+    Nota sobre `pg_restore --list`: não se aplica. Ele lê apenas os formatos
+    custom/directory/tar; este dump é SQL puro comprimido, escolhido por ser
+    legível e tolerante a diferença de versão do PostgreSQL. A verificação
+    equivalente para SQL puro é procurar o DDL, que é o que fazemos.
+    """
+    caminho = Path(caminho)
+    if not caminho.exists():
+        return False, "arquivo não existe"
+    if caminho.stat().st_size < 500:
+        return False, f"arquivo suspeito de truncado ({caminho.stat().st_size} bytes)"
+
+    try:
+        with gzip.open(caminho, "rt", encoding="utf-8", errors="replace") as f:
+            conteudo = f.read()
+    except OSError as exc:
+        return False, f"gzip ilegível: {exc}"
+
+    faltando = [t for t in TABELAS_ESPERADAS if f"CREATE TABLE public.{t}" not in conteudo]
+    if faltando:
+        return False, f"dump sem DDL das tabelas: {faltando}"
+
+    # pg_dump encerra com esta linha; ausência indica dump interrompido.
+    if "PostgreSQL database dump complete" not in conteudo:
+        return False, "dump não tem o marcador de conclusão — provavelmente truncado"
+
+    linhas_copy = conteudo.count("COPY public.")
+    return True, (
+        f"OK — {len(TABELAS_ESPERADAS)} tabelas no DDL, {linhas_copy} blocos de dados, "
+        f"{len(conteudo) / 1024 / 1024:.2f} MB descomprimidos"
+    )
 
 
 def _aplicar_retencao() -> None:
@@ -131,9 +184,14 @@ def main() -> None:
     ap.add_argument("--listar", action="store_true", help="lista backups existentes")
     ap.add_argument("--restaurar", metavar="ARQUIVO", help="restaura um dump (destrutivo)")
     ap.add_argument("--sim", action="store_true", help="pula a confirmação do restore")
+    ap.add_argument("--validar", metavar="ARQUIVO", help="confere um dump existente")
     args = ap.parse_args()
 
-    if args.listar:
+    if args.validar:
+        ok, detalhe = validar(Path(args.validar))
+        print(f"{'VÁLIDO' if ok else 'INVÁLIDO'}: {detalhe}")
+        sys.exit(0 if ok else 1)
+    elif args.listar:
         listar()
     elif args.restaurar:
         restaurar(Path(args.restaurar), confirmado=args.sim)

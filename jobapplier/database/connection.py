@@ -13,7 +13,7 @@ secrets.carregar_env()
 # ambiente dos subprocessos. AIJOB_DATABASE_URL, via secrets, tem precedência.
 DATABASE_URL = secrets.obter("DATABASE_URL", "database_url") or os.environ.get(
     "DATABASE_URL",
-    "postgresql://jobapplier:jobapplier@localhost:5432/jobapplier",
+    "postgresql://jobapplier:jobapplier@localhost:55432/jobapplier",
 )
 
 _engine = None

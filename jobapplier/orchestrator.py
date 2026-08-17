@@ -322,7 +322,7 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
         logger.error(
             "Candidaturas suspensas até o banco estar em head. %s", estado.mensagem()
         )
-        return {"bloqueado": "schema_fora_de_head",
+        return {"bloqueado": estado.codigo,
                 "revisao_aplicada": estado.aplicada,
                 "revisao_esperada": estado.esperada}
 

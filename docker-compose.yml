@@ -6,7 +6,11 @@ services:
       POSTGRES_USER: jobapplier
       POSTGRES_PASSWORD: jobapplier
     ports:
-      - "5432:5432"
+      # 55432 no host, não 5432: esta máquina já tem outro projeto ocupando a
+      # porta padrão. Apontar para 5432 faria a aplicação conversar com o banco
+      # ERRADO — e um `alembic upgrade head` migraria a base de outro sistema.
+      # Dentro do container o Postgres segue na 5432.
+      - "55432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:

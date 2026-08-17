@@ -153,6 +153,9 @@ def montar_avaliacao(
         return {
             **base,
             "application_confidence": None,
+            "required_coverage": None,
+            "optional_coverage": None,
+            "automation_eligible": False,
             "application_readiness": str(Prontidao.INDETERMINADA),
             "blocking_reason": str(codigo),
             "retentavel": descoberta.retentavel,
@@ -164,25 +167,45 @@ def montar_avaliacao(
             **base,
             # Bloqueio conhecido é medição válida: sabemos que não dá.
             "application_confidence": 0.0,
+            "required_coverage": None,
+            "optional_coverage": None,
+            "automation_eligible": False,
             "application_readiness": str(Prontidao.BLOQUEADA),
             "blocking_reason": str(bloqueios[0].codigo),
             "retentavel": False,
             "detalhe": bloqueios[0].detalhe,
         }
 
-    # Obrigatória desconhecida pesa mais que opcional: a primeira impede o envio,
-    # a segunda só reduz a qualidade da candidatura.
     total_obr = len(obr_ok) + len(obr_nok)
     total_opc = len(opc_ok) + len(opc_nok)
-    conf_obr = 1.0 if total_obr == 0 else len(obr_ok) / total_obr
-    conf_opc = 1.0 if total_opc == 0 else len(opc_ok) / total_opc
-    confianca = round(0.8 * conf_obr + 0.2 * conf_opc, 2)
+    cobertura_obr = 1.0 if total_obr == 0 else len(obr_ok) / total_obr
+    cobertura_opc = 1.0 if total_opc == 0 else len(opc_ok) / total_opc
 
-    prontidao = Prontidao.PRONTA if not obr_nok else Prontidao.REVISAO_MANUAL
+    # Duas faixas separadas, não uma média ponderada. Uma média deixava a
+    # cobertura de opcionais compensar uma obrigatória faltando: um formulário
+    # com 9/10 obrigatórias e todas as opcionais pontuava 0.92, acima dos 0.80
+    # de um formulário com TODAS as obrigatórias e nenhuma opcional — quando o
+    # segundo é o único dos dois que pode ser submetido.
+    #
+    #   obrigatória desconhecida → teto 0.5, nunca elegível a automação
+    #   todas conhecidas         → piso 0.8, sobe com a cobertura de opcionais
+    if obr_nok:
+        confianca = round(cobertura_obr * 0.5, 2)
+        prontidao = Prontidao.REVISAO_MANUAL
+    else:
+        confianca = round(0.8 + 0.2 * cobertura_opc, 2)
+        prontidao = Prontidao.PRONTA
 
     return {
         **base,
         "application_confidence": confianca,
+        # Coberturas separadas para ninguém precisar reinterpretar o número
+        # composto depois.
+        "required_coverage": round(cobertura_obr, 2),
+        "optional_coverage": round(cobertura_opc, 2),
+        # O gate de automação é booleano e independente do número: nenhuma
+        # aritmética pode torná-lo verdadeiro com obrigatória desconhecida.
+        "automation_eligible": not obr_nok and not bloqueios,
         "application_readiness": str(prontidao),
         "blocking_reason": (
             str(CodigoBloqueio.PERGUNTA_DESCONHECIDA) if obr_nok else None
