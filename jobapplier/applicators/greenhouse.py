@@ -21,6 +21,7 @@ from jobapplier.applicators.descoberta import (
     StatusDescoberta,
     montar_avaliacao,
 )
+from jobapplier.applicators.identidade import resolver as resolver_identidade
 
 logger = logging.getLogger(__name__)
 
@@ -36,40 +37,10 @@ CAMPOS_PADRAO = {"first_name", "last_name", "preferred_name", "email", "phone",
                  "resume", "cover_letter", "resume_text", "cover_letter_text"}
 
 
-_DOMAIN_SLUG_MAP = {
-    "stripe": "stripe", "mongodb": "mongodb", "databricks": "databricks",
-    "brex": "brex", "airbnb": "airbnb", "marqeta": "marqeta",
-    "intercom": "intercom", "figma": "figma", "asana": "asana",
-    "amplitude": "amplitude", "mixpanel": "mixpanel", "airtable": "airtable",
-    "datadog": "datadog", "pagerduty": "pagerduty", "cloudflare": "cloudflare",
-    "confluent": "confluent", "elastic": "elastic", "snowflake": "snowflake",
-    "fivetran": "fivetran", "dbtlabs": "dbtlabs", "airbyte": "airbyte",
-    "hubspot": "hubspot", "zendesk": "zendesk", "salesforce": "salesforce",
-    "twilio": "twilio", "braze": "braze", "iterable": "iterable",
-    "klaviyo": "klaviyo", "sendbird": "sendbird", "loom": "loom",
-    "notion": "notion", "clickup": "clickup", "miro": "miro",
-}
-
-
-def _parse_link(link: str) -> tuple[str, str] | None:
-    # Padrão padrão do Greenhouse
-    m = re.search(r"greenhouse\.io/([^/]+)/jobs/(\d+)", link)
-    if m:
-        return m.group(1), m.group(2)
-
-    # Empresas que usam própria URL mas passam gh_jid como query param
-    job_id_m = re.search(r"gh_jid=(\d+)", link)
-    if job_id_m:
-        from urllib.parse import urlparse
-        host = urlparse(link).hostname or ""
-        # Extrai nome principal do domínio (ex: "stripe" de "stripe.com")
-        parts = host.replace("www.", "").split(".")
-        domain_key = parts[0] if parts else ""
-        slug = _DOMAIN_SLUG_MAP.get(domain_key)
-        if slug:
-            return slug, job_id_m.group(1)
-
-    return None
+# _parse_link e _DOMAIN_SLUG_MAP foram removidos: a resolução de identidade
+# vive em jobapplier/applicators/identidade.py. Eles falhavam em 22% do
+# acervo por tomar o subdomínio pelo domínio e por depender de um mapa fixo,
+# e manter dois parsers seria outra fonte dupla de verdade.
 
 
 def descobrir_perguntas(slug: str, job_id: str) -> Descoberta:
@@ -570,15 +541,15 @@ def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) 
 
         config_dados = ConfigManager().get("dados_pessoais") or {}
 
-    parsed = _parse_link(getattr(vaga, "link", "") or "")
-    if not parsed:
+    identidade = resolver_identidade(vaga)
+    if identidade is None:
         return montar_avaliacao(
             "greenhouse",
-            Descoberta(StatusDescoberta.RESPOSTA_INVALIDA, detalhe="link não reconhecido"),
+            Descoberta(StatusDescoberta.RESPOSTA_INVALIDA,
+                       detalhe=f"link não reconhecido: {getattr(vaga, 'link', '')[:80]}"),
         )
 
-    slug, job_id = parsed
-    descoberta = descobrir_perguntas(slug, job_id)
+    descoberta = descobrir_perguntas(identidade.slug, identidade.job_id)
     if not descoberta.ok:
         # Sem leitura do formulário não há confiança: None, nunca 0.0. Zero
         # pareceria uma medição válida dizendo "não dá para preencher".
@@ -662,11 +633,11 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
         )
 
     link = getattr(vaga, "link", "") or ""
-    parsed = _parse_link(link)
-    if not parsed:
+    identidade = resolver_identidade(vaga)
+    if identidade is None:
         return resultado(FALHA_AUTOMACAO, f"Link inválido: {link}")
 
-    slug, job_id = parsed
+    slug, job_id = identidade.slug, identidade.job_id
     normalizado = getattr(vaga, "normalizado_json", None) or {}
     job_url = f"{BOARD_BASE}/{slug}/jobs/{job_id}"
     logger.info("Candidatando via Playwright: %s", job_url)
