@@ -4,8 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import structlog
-
+from config import secrets
 from config.manager import ConfigManager
 from collectors.greenhouse import GreenhouseCollector
 from collectors.lever import LeverCollector
@@ -20,6 +19,9 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 logger = logging.getLogger("orchestrator")
+
+# Carrega .env antes de qualquer acesso a segredo ou ao banco.
+secrets.carregar_env()
 
 
 def persist_jobs(jobs: list[CollectedJob]) -> tuple[int, int]:
@@ -128,7 +130,7 @@ def run_collection():
 def run_pipeline():
     """Módulos 4A → 2 → 4B → 3: filtra, normaliza e pontua vagas novas."""
     config = ConfigManager()
-    api_key = config.get_gemini_key()
+    api_key = secrets.gemini_api_key()
 
     if not api_key:
         logger.warning("Gemini API key não configurada. Pipeline de inteligência ignorado.")
@@ -240,9 +242,14 @@ def run_pipeline():
 
 
 def run_applications():
-    """Módulos 12 → 6 → 13: otimiza currículo, gera cover letter e candidata vagas aprovadas."""
+    """Módulos 12 → 6 → 13: otimiza currículo, gera cover letter e candidata vagas aprovadas.
+
+    Só processa vagas com status 'aprovada'. Vagas 'pendente' aguardam revisão
+    humana na página Vagas — o agendador não decide por você. Para voltar ao
+    comportamento antigo, defina risco.auto_aplicar_pendentes = true na config.
+    """
     config = ConfigManager()
-    api_key = config.get_gemini_key()
+    api_key = secrets.gemini_api_key()
 
     if not api_key:
         logger.warning("Gemini API key não configurada.")
@@ -268,24 +275,82 @@ def run_applications():
     import applicators.gupy as gupy_applicator
     from database.models import Candidatura
 
+    from safety import guard
+
     client = GeminiClient(api_key=api_key, use_cache=True)
+
+    cfg = config.load()
+    risco_cfg = cfg.get("risco") or {}
+
+    # Devolve para a fila vagas travadas em 'em_andamento' por crash anterior.
+    guard.liberar_orfaos()
+
+    # Plataformas com automação de candidatura implementada. Lever (Módulo 14)
+    # ainda não tem — antes essas vagas caíam no applicator do Greenhouse e
+    # falhavam depois de já ter gasto tokens Gemini.
+    PLATAFORMAS_COM_AUTOMACAO = {"greenhouse", "linkedin", "gupy"}
+
+    status_alvo = ["aprovada"]
+    if risco_cfg.get("auto_aplicar_pendentes"):
+        status_alvo.append("pendente")
+        logger.warning(
+            "auto_aplicar_pendentes=true — candidatando sem revisão humana."
+        )
 
     with get_session() as session:
         vagas_aprovadas = (
             session.query(Vaga)
-            .filter(Vaga.status.in_(["aprovada", "pendente"]))
+            .filter(Vaga.status.in_(status_alvo))
             .order_by(Vaga.score.desc())
             .all()
         )
 
     if not vagas_aprovadas:
-        logger.info("Nenhuma vaga aprovada ou pendente aguardando candidatura.")
+        logger.info("Nenhuma vaga aguardando candidatura (status: %s).", status_alvo)
         return
 
-    logger.info("Candidatando %d vagas (aprovadas + pendentes)...", len(vagas_aprovadas))
+    logger.info("Fila de candidatura: %d vagas (status: %s)", len(vagas_aprovadas), status_alvo)
+
+    enviadas_neste_ciclo = 0
 
     for vaga in vagas_aprovadas:
+        plataforma = (vaga.plataforma or "").lower()
+
+        # ── Guarda 1: plataforma sem automação ───────────────────────────────
+        if plataforma not in PLATAFORMAS_COM_AUTOMACAO:
+            logger.info(
+                "Vaga id=%d ignorada: plataforma '%s' sem automação implementada.",
+                vaga.id, plataforma,
+            )
+            with get_session() as session:
+                session.query(Vaga).filter(Vaga.id == vaga.id).update(
+                    {"status": "sem_automacao"}
+                )
+            continue
+
+        # ── Guarda 2: nunca candidatar duas vezes ────────────────────────────
+        if guard.ja_candidatado(vaga.id):
+            logger.info("Vaga id=%d já tem candidatura enviada — pulando.", vaga.id)
+            with get_session() as session:
+                session.query(Vaga).filter(Vaga.id == vaga.id).update(
+                    {"status": "candidatada"}
+                )
+            continue
+
+        # ── Guarda 3: limite diário e disjuntor ──────────────────────────────
+        # Antes de gastar token Gemini ou abrir browser. Status fica intacto:
+        # a vaga volta a ser elegível no próximo ciclo.
+        pode, motivo = guard.checar_limite(plataforma, cfg)
+        if not pode:
+            logger.warning("Vaga id=%d postergada: %s", vaga.id, motivo)
+            continue
+
+        # ── Espera humana entre candidaturas ─────────────────────────────────
+        if enviadas_neste_ciclo > 0:
+            guard.espera_humana(cfg, contexto=plataforma)
+
         logger.info("Processando vaga id=%d '%s'", vaga.id, vaga.titulo[:50])
+        enviadas_neste_ciclo += 1
 
         # Marca como em andamento
         with get_session() as session:
@@ -329,7 +394,7 @@ def run_applications():
                 cover_letter_path.write_text(cover_letter_text, encoding="utf-8")
 
             # ── Módulo 13: Candidatura via plataforma detectada ───────────────
-            plataforma = (vaga.plataforma or "").lower()
+            # 'plataforma' já validada contra PLATAFORMAS_COM_AUTOMACAO acima.
             if plataforma == "linkedin":
                 logger.info("Enviando candidatura via LinkedIn Easy Apply...")
                 resultado_app = li_applicator.apply(vaga, resume_json, pdf_path, cover_letter_text)
@@ -392,7 +457,23 @@ def main():
         from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 
         jobstores = {"default": SQLAlchemyJobStore(url=DATABASE_URL)}
-        scheduler = BlockingScheduler(jobstores=jobstores, timezone="America/Sao_Paulo")
+
+        # max_instances=1: nenhum job pode rodar concorrente consigo mesmo. Sem
+        # isso, uma coleta lenta ou um Playwright travado empilha execuções
+        # sobrepostas — e liberar_orfaos() em run_applications passa a ser
+        # incorreto, porque haveria outra execução legitimamente 'em_andamento'.
+        # coalesce=True: após downtime, executa uma vez em vez de reprocessar
+        # toda a fila de disparos perdidos.
+        defaults = {
+            "max_instances": 1,
+            "coalesce": True,
+            "misfire_grace_time": 600,
+        }
+        scheduler = BlockingScheduler(
+            jobstores=jobstores,
+            timezone="America/Sao_Paulo",
+            job_defaults=defaults,
+        )
 
         scheduler.add_job(
             run_collection,
@@ -422,14 +503,27 @@ def main():
 
         def _send_daily_report():
             cfg = ConfigManager()
-            email_cfg = cfg.get("email")
-            if email_cfg and email_cfg.get("smtp_user") and email_cfg.get("smtp_pass"):
-                from notifications.email_sender import send_daily_report
-                ok, msg = send_daily_report(email_cfg)
-                if ok:
-                    logger.info("Relatório diário enviado.")
-                else:
-                    logger.warning("Falha no relatório diário: %s", msg)
+            email_cfg = dict(cfg.get("email") or {})
+
+            # Credenciais do ambiente têm precedência sobre o JSON.
+            smtp_user, smtp_pass = secrets.smtp_credenciais()
+            if smtp_user:
+                email_cfg["smtp_user"] = smtp_user
+            if smtp_pass:
+                email_cfg["smtp_pass"] = smtp_pass
+            email_cfg.setdefault("smtp_host", "smtp.gmail.com")
+            email_cfg.setdefault("smtp_port", 587)
+
+            if not (email_cfg.get("smtp_user") and email_cfg.get("smtp_pass")):
+                logger.debug("Relatório diário ignorado: SMTP não configurado.")
+                return
+
+            from notifications.email_sender import send_daily_report
+            ok, msg = send_daily_report(email_cfg)
+            if ok:
+                logger.info("Relatório diário enviado.")
+            else:
+                logger.warning("Falha no relatório diário: %s", msg)
 
         scheduler.add_job(
             _send_daily_report,

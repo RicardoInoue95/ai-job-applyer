@@ -7,7 +7,11 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 SESSION_PATH = Path("data/sessions/linkedin.json")
-MAX_DAILY_APPLICATIONS = 10
+
+# O limite diário mora em safety/guard.py (DEFAULT_LIMITES) e é verificado pelo
+# orquestrador ANTES de chegar aqui — antes de gastar token Gemini ou abrir
+# browser. Havia uma constante MAX_DAILY_APPLICATIONS = 10 neste arquivo que
+# nunca era consultada por ninguém.
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -286,6 +290,10 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
                 return {"status": "erro", "application_id": None,
                         "mensagem": "Sessão expirada. Faça login novamente em Setup → Etapa 4.",
                         "perguntas_manuais": []}
+
+            # Jitter de mouse/scroll antes de interagir (Módulo 9)
+            from safety import guard
+            guard.humanizar(page)
 
             # Clica no botão Easy Apply
             easy_apply_btn = (

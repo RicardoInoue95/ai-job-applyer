@@ -3,7 +3,14 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-DATABASE_URL = os.environ.get(
+from config import secrets
+
+# Carrega .env antes de resolver a URL do banco.
+secrets.carregar_env()
+
+# DATABASE_URL (sem prefixo) é mantido por compatibilidade: run.py o injeta no
+# ambiente dos subprocessos. AIJOB_DATABASE_URL, via secrets, tem precedência.
+DATABASE_URL = secrets.obter("DATABASE_URL", "database_url") or os.environ.get(
     "DATABASE_URL",
     "postgresql://jobapplier:jobapplier@localhost:5432/jobapplier",
 )

@@ -46,13 +46,17 @@ class ConfigManager:
         return bool(self.get("setup_completed"))
 
     def get_gemini_key(self) -> str | None:
-        return self.get("gemini", "api_key")
+        # Delega para config.secrets: ambiente (.env) tem precedência sobre o
+        # JSON. Import local evita ciclo — secrets importa ConfigManager para o
+        # fallback. Passa self para que o fallback leia ESTE arquivo de config.
+        from config import secrets
+
+        return secrets.gemini_api_key(config=self)
 
     def get_database_url(self) -> str:
-        return self.get(
-            "database_url",
-            default="postgresql://jobapplier:jobapplier@localhost:5432/jobapplier",
-        )
+        from config import secrets
+
+        return secrets.database_url(config=self)
 
     def get_target_companies(self) -> dict:
         return {

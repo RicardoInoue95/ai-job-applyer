@@ -1,16 +1,36 @@
 """Módulo 4A — Filtros pré-normalização (texto bruto, sem IA)."""
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
-# Países/regiões que indicam vaga explicitamente fora do Brasil/remoto
-_BLOCOS_GEOGRAFICOS = [
-    "usa,", "usa ", "united states", "u.s.", "united kingdom", "uk,", " uk ",
-    "canada,", "canada ", "australia,", "australia ", "india,", "india ",
-    "germany,", "france,", "spain,", "netherlands,", "singapore,",
-    "colombia,", "colombia ", "mexico,", "mexico ", "argentina,", "argentina ",
-    "chile,", "chile ", "peru,", "peru ",
+# Países que indicam vaga explicitamente fora do Brasil.
+#
+# Casado com fronteira de palavra, não substring. A versão anterior desta lista
+# exigia vírgula ou espaço DEPOIS do país ("usa,", "usa ", "canada,"), então
+# qualquer localização que terminasse no nome do país — "Austin, USA",
+# "London, UK", "Toronto, Canada", o formato mais comum dos boards — passava
+# batido. Fronteira de palavra também evita o falso positivo oposto:
+# "Indiana" não casa com "india".
+_PAISES_ESTRANGEIROS = [
+    "usa", "united states", "united kingdom", "uk",
+    "canada", "australia", "india", "germany", "france", "spain",
+    "netherlands", "singapore", "colombia", "mexico", "argentina",
+    "chile", "peru",
 ]
+
+_RE_ESTRANGEIRO = re.compile(
+    r"\b(?:" + "|".join(re.escape(p) for p in _PAISES_ESTRANGEIROS) + r")\b",
+    re.IGNORECASE,
+)
+
+# Abreviações pontuadas ("U.S.", "U.S.A.") não funcionam com \b no fim, porque
+# o ponto final já é caractere não-palavra.
+_RE_US_ABREV = re.compile(r"\bu\.\s?s\.(?:\s?a\.?)?", re.IGNORECASE)
+
+
+def _e_estrangeira(localizacao: str) -> bool:
+    return bool(_RE_ESTRANGEIRO.search(localizacao) or _RE_US_ABREV.search(localizacao))
 
 
 def _normalize(text: str) -> str:
@@ -58,8 +78,7 @@ def apply(vaga, config: dict) -> tuple[bool, str]:
                                                     "brasília", "brasilia", "porto alegre", "sp,",
                                                     ", sp", ", rj", ", mg", ", rs"])
         if not is_remote and not is_brazil:
-            is_foreign = any(block in loc_lower for block in _BLOCOS_GEOGRAFICOS)
-            if is_foreign:
+            if _e_estrangeira(loc_lower):
                 return False, f"localização fora do Brasil: '{localizacao}'"
 
     return True, ""

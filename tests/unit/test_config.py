@@ -51,8 +51,25 @@ def test_is_setup_complete_true_when_configured(tmp_config):
     assert tmp_config.is_setup_complete()
 
 
-def test_get_gemini_key_none_when_missing(tmp_config):
+def test_get_gemini_key_none_when_missing(tmp_config, monkeypatch):
+    # get_gemini_key agora consulta o ambiente antes do JSON, então o teste
+    # precisa garantir que a variável não está definida.
+    monkeypatch.delenv("AIJOB_GEMINI_API_KEY", raising=False)
     assert tmp_config.get_gemini_key() is None
+
+
+def test_get_gemini_key_prefers_env_over_json(tmp_config, monkeypatch):
+    tmp_config.save({"gemini": {"api_key": "do-json"}})
+    monkeypatch.setenv("AIJOB_GEMINI_API_KEY", "do-ambiente")
+    assert tmp_config.get_gemini_key() == "do-ambiente"
+
+
+def test_get_gemini_key_fallback_usa_config_da_instancia(tmp_config, monkeypatch):
+    # Regressão: get_gemini_key delegava para um ConfigManager novo e ignorava
+    # o path da instância, fazendo ConfigManager(path=X) ler outro arquivo.
+    monkeypatch.delenv("AIJOB_GEMINI_API_KEY", raising=False)
+    tmp_config.save({"gemini": {"api_key": "chave-desta-instancia"}})
+    assert tmp_config.get_gemini_key() == "chave-desta-instancia"
 
 
 def test_get_target_companies_empty_by_default(tmp_config):
