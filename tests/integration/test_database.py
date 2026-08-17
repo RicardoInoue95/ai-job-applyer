@@ -1,8 +1,11 @@
 """
 Testes de integração — requerem PostgreSQL rodando.
-Execute com: pytest tests/integration/ -v
+Execute com: pytest -m db
 
 Para subir o banco: docker compose up postgres -d
+
+Sem Postgres disponível, cada teste é pulado com motivo explícito em vez de
+falhar — mas continue tratando um skip como cobertura ausente, não como sucesso.
 """
 import hashlib
 from datetime import datetime
@@ -12,6 +15,8 @@ import pytest
 from database.connection import DATABASE_URL, get_session
 from database.models import Vaga
 from database.repository import VagaRepository
+
+pytestmark = pytest.mark.db
 
 
 @pytest.fixture(scope="module")
