@@ -102,6 +102,11 @@ class Candidatura(Base):
     keywords_adicionadas: Mapped[list | None] = mapped_column(JSON)
     cover_letter_path: Mapped[str | None] = mapped_column(String(500))
     screenshots_path: Mapped[str | None] = mapped_column(String(500))
+    #: Resultado de `applicators.base.avaliar_preenchimento`: quais campos do
+    #: formulário a automação conseguiria responder. É o que torna o modo sombra
+    #: capaz de medir a taxa de formulários desconhecidos — sem isto ele só
+    #: responde "eu teria me candidatado?", nunca "eu conseguiria preencher?".
+    avaliacao_preenchimento_json: Mapped[dict | None] = mapped_column(JSON)
     erro: Mapped[str | None] = mapped_column(Text)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
     atualizado_em: Mapped[datetime] = mapped_column(

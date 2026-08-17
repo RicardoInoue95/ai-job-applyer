@@ -183,6 +183,94 @@ def capturar_falha(page, plataforma: str, vaga_id: int | str = "?") -> list[Path
     return capturados
 
 
+# ── Avaliação de preenchimento (application_confidence) ──────────────────────
+#
+# O modo sombra respondia "eu teria me candidatado?" e não respondia "eu
+# conseguiria preencher?". São perguntas diferentes: uma vaga pode ter aderência
+# excelente e um formulário que a automação não sabe completar.
+#
+# Sem isto, o modo sombra não produz a evidência que justificaria desligá-lo —
+# nunca se descobre a taxa de formulários desconhecidos, porque o applicator
+# nunca é executado.
+
+
+def avaliacao_indisponivel(plataforma: str, motivo: str) -> dict:
+    """Resultado quando não há como inspecionar o formulário sem submetê-lo."""
+    return {
+        "plataforma": plataforma,
+        "metodo": "indisponivel",
+        "motivo": motivo,
+        "total_campos": None,
+        "respondidos": None,
+        "desconhecidos": [],
+        "bloqueadores": [],
+        "application_confidence": None,
+    }
+
+
+def montar_avaliacao(
+    plataforma: str,
+    metodo: str,
+    respondidos: list[str],
+    desconhecidos: list[str],
+    bloqueadores: list[str] | None = None,
+) -> dict:
+    """Consolida a avaliação e calcula a confiança de preenchimento.
+
+    Bloqueador zera a confiança, independentemente do resto: uma pergunta
+    eliminatória sem resposta significa que a candidatura não deve sair, por
+    melhor que seja a aderência.
+    """
+    bloqueadores = list(bloqueadores or [])
+    total = len(respondidos) + len(desconhecidos)
+
+    if bloqueadores:
+        confianca = 0.0
+    elif total == 0:
+        # Formulário só com campos padrão (nome, e-mail, currículo). É o caso
+        # mais simples e o mais seguro de automatizar.
+        confianca = 1.0
+    else:
+        confianca = round(len(respondidos) / total, 2)
+
+    return {
+        "plataforma": plataforma,
+        "metodo": metodo,
+        "total_campos": total,
+        "respondidos": respondidos,
+        "desconhecidos": desconhecidos,
+        "bloqueadores": bloqueadores,
+        "application_confidence": confianca,
+    }
+
+
+def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) -> dict:
+    """Quanto do formulário desta vaga a automação consegue preencher.
+
+    Nunca submete nada. Onde a plataforma expõe as perguntas por API — hoje só o
+    Greenhouse — a avaliação custa uma requisição HTTP e nenhum browser.
+    """
+    plataforma = (getattr(vaga, "plataforma", "") or "").lower()
+
+    if plataforma == "greenhouse":
+        from jobapplier.applicators.greenhouse import avaliar_preenchimento as _gh
+
+        try:
+            return _gh(vaga, resume, config_dados)
+        except Exception as exc:
+            logger.warning("Avaliação de preenchimento falhou: %s", exc)
+            return avaliacao_indisponivel(plataforma, f"erro na avaliação: {exc}")
+
+    if plataforma in PLATAFORMAS:
+        return avaliacao_indisponivel(
+            plataforma,
+            "plataforma não expõe as perguntas sem abrir o formulário; "
+            "avaliar exigiria dry-run em browser",
+        )
+
+    return avaliacao_indisponivel(plataforma or "desconhecida", "sem automação")
+
+
 # ── Registro de plataformas ───────────────────────────────────────────────────
 
 def _carregar(modulo: str) -> Callable:

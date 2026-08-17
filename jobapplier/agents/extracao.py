@@ -222,9 +222,10 @@ def pontuar(vaga, resume_json: dict, anos_experiencia: float) -> dict:
     if ausentes:
         gaps.append(f"tecnologias da vaga ausentes no currículo: {', '.join(ausentes[:6])}")
 
-    # Confiança do próprio score: quanto menos a vaga informa, menos o número
-    # significa. Sem isto, uma vaga com descrição vazia pontuaria como qualquer
-    # outra e ninguém saberia que foi um chute.
+    # Confiança NO SCORE — quanto menos a vaga informa, menos o número significa.
+    # Deliberadamente NÃO se chama `confidence`: `application_confidence` é outra
+    # coisa (se a automação consegue preencher o formulário), vive em
+    # `applicators.base` e as duas acabariam no mesmo JSON.
     sinais = sum([
         bool(tec_vaga),
         normalizado.get("senioridade", "Desconhecida") != "Desconhecida",
@@ -253,7 +254,7 @@ def pontuar(vaga, resume_json: dict, anos_experiencia: float) -> dict:
         # Campos que o scorer por LLM não produz.
         "hard_requirements_met": not ausentes,
         "missing_required": ausentes,
-        "confidence": confianca,
+        "confianca_score": confianca,
         "_origem": "deterministica",
     }
 

@@ -59,6 +59,36 @@ def _parse_link(link: str) -> tuple[str, str] | None:
     return None
 
 
+def _buscar_perguntas(slug: str, job_id: str) -> tuple[list[dict], bool]:
+    """Perguntas do formulário e se a consulta REALMENTE funcionou.
+
+    A distinção importa: `_get_job_questions` devolve [] tanto para "formulário
+    sem perguntas customizadas" quanto para "não consegui ler a vaga". Tratar os
+    dois como iguais dava confiança de preenchimento 1.0 a uma vaga que sequer
+    foi lida — falso positivo do mesmo tipo que o "obrigado" marcava envio.
+    """
+    try:
+        resp = requests.get(
+            f"{API_BASE}/{slug}/jobs/{job_id}",
+            params={"questions": "true"},
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+    except Exception as exc:
+        logger.warning("Falha ao consultar perguntas de %s/%s: %s", slug, job_id, exc)
+        return [], False
+
+    if resp.status_code != 200:
+        logger.warning("Perguntas de %s/%s: HTTP %s", slug, job_id, resp.status_code)
+        return [], False
+
+    try:
+        return resp.json().get("questions", []), True
+    except Exception as exc:
+        logger.warning("Resposta de perguntas ilegível: %s", exc)
+        return [], False
+
+
 def _get_job_questions(slug: str, job_id: str) -> list[dict]:
     try:
         resp = requests.get(
@@ -446,6 +476,87 @@ def _pw_select_react(page, field_id: str, label_text: str, timeout: int = 4000) 
     return False
 
 
+def avaliar_preenchimento(vaga, resume: dict, config_dados: dict | None = None) -> dict:
+    """Mede quanto do formulário conseguimos responder, sem abrir browser.
+
+    A API pública do Greenhouse devolve as perguntas do formulário. Rodamos o
+    mesmo `_auto_answer` que a candidatura real usaria e contamos o que fica sem
+    resposta — que é exatamente o que viraria pergunta manual.
+    """
+    from jobapplier.applicators.base import avaliacao_indisponivel, montar_avaliacao
+
+    if config_dados is None:
+        from jobapplier.config.manager import ConfigManager
+
+        config_dados = ConfigManager().get("dados_pessoais") or {}
+
+    parsed = _parse_link(getattr(vaga, "link", "") or "")
+    if not parsed:
+        return avaliacao_indisponivel("greenhouse", "link não reconhecido")
+
+    slug, job_id = parsed
+    questions, consulta_ok = _buscar_perguntas(slug, job_id)
+    if not consulta_ok:
+        # Sem leitura do formulário não há avaliação. Devolver 0 campos aqui
+        # produziria confiança 1.0 para uma vaga que nem foi aberta.
+        return avaliacao_indisponivel(
+            "greenhouse", f"não foi possível ler o formulário de {slug}/{job_id}"
+        )
+
+    normalizado = getattr(vaga, "normalizado_json", None) or {}
+
+    respondidos: list[str] = []
+    desconhecidos: list[str] = []
+    bloqueadores: list[str] = []
+
+    if not config_dados.get("cpf"):
+        bloqueadores.append("CPF não configurado")
+
+    for q in questions:
+        label = (q.get("label") or "").strip()
+        if not label:
+            continue
+
+        campos = q.get("fields") or [{}]
+        nome_campo = (campos[0].get("name") or "").strip()
+        if nome_campo in CAMPOS_PADRAO:
+            continue  # nome, e-mail, currículo: sempre preenchíveis
+
+        if any(ph in label.lower() for ph in _us_auth_phrases_globais()):
+            bloqueadores.append(f"exige autorização de trabalho nos EUA: {label[:60]}")
+            continue
+
+        resposta = _auto_answer(
+            label,
+            campos[0].get("type", ""),
+            campos[0].get("values") or [],
+            resume, normalizado, config_dados,
+        )
+        if resposta:
+            respondidos.append(label[:80])
+        elif q.get("required"):
+            desconhecidos.append(label[:80])
+
+    return montar_avaliacao("greenhouse", "api", respondidos, desconhecidos, bloqueadores)
+
+
+def _us_auth_phrases_globais() -> tuple[str, ...]:
+    """Frases que indicam vaga exclusiva dos EUA.
+
+    Vivia dentro de `apply()`; extraída para a avaliação usar o mesmo critério —
+    duas listas divergentes dariam confiança alta a uma vaga que a candidatura
+    depois recusaria.
+    """
+    return (
+        "authorized to work in the united states",
+        "legally authorized to work in the us",
+        "authorized to work in the us ",
+        "h-1b visa status",
+        "citizen or resident of",
+        "sponsorship for employment visa",
+    )
+
+
 def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     """Submete candidatura via Playwright (form submission real no Greenhouse)."""
     from playwright.sync_api import sync_playwright
@@ -476,14 +587,7 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     questions = _get_job_questions(slug, job_id)
 
     # Detecta vagas exclusivas dos EUA (requerem work authorization americana)
-    _us_auth_phrases = [
-        "authorized to work in the united states",
-        "legally authorized to work in the us",
-        "authorized to work in the us ",
-        "h-1b visa status",
-        "citizen or resident of",          # Cuba, Iran, etc. — formulário OFAC americano
-        "sponsorship for employment visa",
-    ]
+    _us_auth_phrases = _us_auth_phrases_globais()
     us_only_questions = [
         q.get("label", "") for q in questions
         if any(ph in q.get("label", "").lower() for ph in _us_auth_phrases)

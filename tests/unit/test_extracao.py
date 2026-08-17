@@ -259,7 +259,7 @@ def test_confianca_cai_quando_a_vaga_informa_pouco():
                         modalidade="Desconhecida", idioma_principal="Desconhecida"),
         CURRICULO, 4,
     )
-    assert pobre["confidence"] < rica["confidence"]
+    assert pobre["confianca_score"] < rica["confianca_score"]
 
 
 def test_vaga_sem_tecnologia_nao_e_penalizada_como_incompativel():

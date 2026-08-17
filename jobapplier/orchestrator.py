@@ -406,6 +406,8 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
         if processadas_neste_ciclo > 0:
             guard.espera_humana(cfg, contexto=plataforma)
 
+        avaliacao = None
+
         # ── Guarda 4: lease ──────────────────────────────────────────────────
         # Um UPDATE condicional faz a transição para 'em_andamento' e o bloqueio
         # ao mesmo tempo. Se não casar, outra execução tem a vaga ou ela passou
@@ -456,15 +458,34 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
 
             # ── Módulo 13: Candidatura via plataforma detectada ───────────────
             if modo_sombra:
+                # Avalia o formulário SEM submeter. É o que produz a evidência
+                # que justificaria desligar o modo sombra: a taxa de formulários
+                # que a automação não sabe preencher.
+                avaliacao = applicators.avaliar_preenchimento(vaga, resume_json)
+                perguntas_desconhecidas = (
+                    avaliacao.get("desconhecidos", []) + avaliacao.get("bloqueadores", [])
+                )
                 resultado_app = applicators.resultado(
                     applicators.SIMULADA,
                     f"Modo sombra: documentos preparados para {plataforma}, "
                     "envio não executado.",
+                    perguntas_manuais=perguntas_desconhecidas,
                 )
+                confianca = avaliacao.get("application_confidence")
                 logger.info(
-                    "MODO SOMBRA — teria candidatado vaga id=%d em %s (score %.0f). "
-                    "Currículo: %s", vaga.id, plataforma, vaga.score or 0, pdf_path.name,
+                    "MODO SOMBRA — vaga id=%d em %s | fit %.0f | preenchimento %s "
+                    "(%s/%s campos) | currículo %s",
+                    vaga.id, plataforma, vaga.score or 0,
+                    "?" if confianca is None else f"{confianca:.0%}",
+                    (avaliacao.get("respondidos") and len(avaliacao["respondidos"])) or 0,
+                    avaliacao.get("total_campos") if avaliacao.get("total_campos") is not None else "?",
+                    pdf_path.name,
                 )
+                if avaliacao.get("bloqueadores"):
+                    logger.warning(
+                        "Vaga id=%d tem bloqueador de preenchimento: %s",
+                        vaga.id, avaliacao["bloqueadores"],
+                    )
             else:
                 # Registry é a fonte única: 'plataforma' já passou por
                 # applicators.suportada() na guarda 1, então obter() não falha.
@@ -510,6 +531,7 @@ def _executar_candidaturas(run_id: str = "manual") -> dict:
                     keywords_adicionadas=keywords_adicionadas,
                     cover_letter_path=str(cover_letter_path) if cover_letter_path else None,
                     screenshots_path=";".join(evidencias) if evidencias else None,
+                    avaliacao_preenchimento_json=avaliacao,
                     erro=erro_texto,
                 )
                 session.add(cand)
