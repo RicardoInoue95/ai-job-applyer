@@ -1,0 +1,62 @@
+# ── Segredos e dados pessoais ────────────────────────────────────────────────
+# data/ contém: config.json (API key, CPF), sessions/ (cookies LinkedIn),
+# postgres/ (101 MB de dados do banco), currículos e cover letters gerados.
+# NADA disso vai para o versionamento.
+.env
+.env.*
+!.env.example
+data/
+secrets/
+*.pem
+*.key
+
+# ── Artefatos de debug com PII ───────────────────────────────────────────────
+# Screenshots de currículo/telas contêm dados pessoais. Se quiser versionar
+# alguma imagem de documentação, coloque em docs/ e remova a linha abaixo.
+/*.png
+/*.jpg
+/*.jpeg
+screenshots/
+
+# ── Python ───────────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Testes e cobertura ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+
+# ── Ferramentas / IDE ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Streamlit ────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── Playwright ───────────────────────────────────────────────────────────────
+playwright-report/
+test-results/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
