@@ -14,15 +14,15 @@ markers = [
     "db: exige PostgreSQL de pé.",
 ]
 filterwarnings = [
-    "error::DeprecationWarning:agents.*",
-    "error::DeprecationWarning:safety.*",
+    # DeprecationWarning vindo do nosso próprio código é erro; de dependência, não.
+    "error::DeprecationWarning:jobapplier.*",
     "default",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = [".venv", "data", "database/migrations/versions"]
+exclude = [".venv", "data", "jobapplier/database/migrations/versions"]
 
 [tool.ruff.lint]
 select = [
@@ -39,17 +39,24 @@ ignore = [
     "E501",     # comprimento de linha: formatter cuida
     "B008",     # chamada em default de argumento (padrão comum no FastAPI/Streamlit)
     "SIM108",   # ternário obrigatório prejudica legibilidade em alguns casos
+    # Os dois abaixo foram avaliados caso a caso e recusados por mérito, não por
+    # conveniência — o resto do conjunto está zerado.
+    "SIM102",   # 'if' aninhado colapsável. Nos 17 casos restantes o próprio ruff
+                # se recusa a aplicar o fix (há comentário entre as condições, ou
+                # a condição unida passaria de 100 colunas). Em _auto_answer, a
+                # forma aninhada 'se o label é sobre X' → 'se o campo é Sim/Não'
+                # expressa a decisão em dois passos, que é como ela é pensada.
+    "RUF001",   # caractere unicode "ambíguo" em string. São travessão (–) e ›
+                # em texto de UI em português: tipografia intencional, não erro
+                # de digitação de hífen ou maior-que.
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Testes podem usar assert, nomes longos e imports locais à vontade.
 "tests/**" = ["B011", "E402"]
-# Streamlit exige set_page_config antes de qualquer outro comando, o que força
-# imports depois de código.
-"pages/**" = ["E402"]
+# Streamlit exige set_page_config antes de qualquer outro comando, e _bootstrap
+# precisa vir antes dos imports de jobapplier — ambos forçam import fora do topo.
+"ui/**" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = [
-    "agents", "applicators", "collectors", "config", "database",
-    "filters", "generators", "notifications", "resume_parser", "safety",
-]
+known-first-party = ["jobapplier"]

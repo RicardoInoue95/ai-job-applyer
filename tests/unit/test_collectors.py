@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from collectors.greenhouse import GreenhouseCollector
-from collectors.lever import LeverCollector
+from jobapplier.collectors.greenhouse import GreenhouseCollector
+from jobapplier.collectors.lever import LeverCollector
 
 GREENHOUSE_RESPONSE = {
     "jobs": [
@@ -34,7 +34,7 @@ def test_greenhouse_collect_returns_jobs():
     mock_resp.json.return_value = GREENHOUSE_RESPONSE
     mock_resp.raise_for_status.return_value = None
 
-    with patch("collectors.greenhouse.requests.get", return_value=mock_resp):
+    with patch("jobapplier.collectors.greenhouse.requests.get", return_value=mock_resp):
         collector = GreenhouseCollector()
         jobs = collector.collect("acme")
 
@@ -53,7 +53,7 @@ def test_greenhouse_collect_deduplicates_via_hash():
     mock_resp.json.return_value = GREENHOUSE_RESPONSE
     mock_resp.raise_for_status.return_value = None
 
-    with patch("collectors.greenhouse.requests.get", return_value=mock_resp):
+    with patch("jobapplier.collectors.greenhouse.requests.get", return_value=mock_resp):
         collector = GreenhouseCollector()
         jobs1 = collector.collect("acme")
         jobs2 = collector.collect("acme")
@@ -65,7 +65,7 @@ def test_greenhouse_collect_returns_empty_on_404():
     mock_resp = MagicMock()
     mock_resp.status_code = 404
 
-    with patch("collectors.greenhouse.requests.get", return_value=mock_resp):
+    with patch("jobapplier.collectors.greenhouse.requests.get", return_value=mock_resp):
         collector = GreenhouseCollector()
         jobs = collector.collect("nonexistent-company")
 
@@ -78,7 +78,7 @@ def test_lever_collect_returns_jobs():
     mock_resp.json.return_value = LEVER_RESPONSE
     mock_resp.raise_for_status.return_value = None
 
-    with patch("collectors.lever.requests.get", return_value=mock_resp):
+    with patch("jobapplier.collectors.lever.requests.get", return_value=mock_resp):
         collector = LeverCollector()
         jobs = collector.collect("acme")
 
@@ -94,7 +94,7 @@ def test_lever_collect_returns_empty_on_404():
     mock_resp = MagicMock()
     mock_resp.status_code = 404
 
-    with patch("collectors.lever.requests.get", return_value=mock_resp):
+    with patch("jobapplier.collectors.lever.requests.get", return_value=mock_resp):
         collector = LeverCollector()
         jobs = collector.collect("nonexistent")
 
@@ -114,7 +114,7 @@ def test_collect_all_skips_failed_companies():
             return mock_resp_ok
         raise requests.RequestException("Connection failed")
 
-    with patch("collectors.greenhouse.requests.get", side_effect=side_effect):
+    with patch("jobapplier.collectors.greenhouse.requests.get", side_effect=side_effect):
         collector = GreenhouseCollector()
         jobs = collector.collect_all(["good-company", "bad-company"])
 

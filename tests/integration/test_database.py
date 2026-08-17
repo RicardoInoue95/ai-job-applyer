@@ -8,13 +8,13 @@ Sem Postgres disponível, cada teste é pulado com motivo explícito em vez de
 falhar — mas continue tratando um skip como cobertura ausente, não como sucesso.
 """
 import hashlib
-from datetime import datetime
 
 import pytest
 
-from database.connection import DATABASE_URL, get_session
-from database.models import Vaga
-from database.repository import VagaRepository
+from jobapplier.database.connection import DATABASE_URL, get_session
+from jobapplier.database.models import Vaga
+from jobapplier.database.repository import VagaRepository
+from jobapplier.tempo import agora_utc
 
 pytestmark = pytest.mark.db
 
@@ -42,7 +42,7 @@ def make_vaga(title="Data Engineer", company="test-co", link=None) -> Vaga:
         localizacao="Remote",
         descricao="Test job description",
         link=link,
-        criado_em=datetime.utcnow(),
+        criado_em=agora_utc(),
     )
 
 

@@ -18,7 +18,7 @@ de commit e docstrings. Termos técnicos consagrados ficam em inglês
 
 ```powershell
 # ── Setup ────────────────────────────────────────────────────────────────────
-.\install.ps1                                   # primeira vez
+.\scripts\install.ps1                           # primeira vez
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe -m playwright install chromium
 cp .env.example .env                            # e preencha as chaves
@@ -36,9 +36,11 @@ python run.py                                   # Postgres + Streamlit + orquest
 .venv\Scripts\python.exe -m pytest -k auto_answer -vv   # foco num assunto
 
 # ── Lint ─────────────────────────────────────────────────────────────────────
-.venv\Scripts\python.exe -m ruff check .
+.venv\Scripts\python.exe -m ruff check .          # CI roda exatamente isto
 .venv\Scripts\python.exe -m ruff check . --fix
-.venv\Scripts\python.exe -m ruff format .
+# NÃO rode 'ruff format .': reformataria ~48 arquivos, desfazendo alinhamentos
+# intencionais (listas de slugs agrupadas por comentário, dicts alinhados). O
+# formatter não é aplicado neste projeto e não está no CI.
 
 # ── Banco ────────────────────────────────────────────────────────────────────
 docker compose up postgres -d
@@ -47,12 +49,12 @@ docker compose up postgres -d
 .venv\Scripts\python.exe -m alembic downgrade -1
 
 # ── Executar uma etapa isolada do pipeline ───────────────────────────────────
-.venv\Scripts\python.exe -c "import orchestrator; orchestrator.run_collection()"
-.venv\Scripts\python.exe -c "import orchestrator; orchestrator.run_pipeline()"
-.venv\Scripts\python.exe -c "import orchestrator; orchestrator.run_applications()"
+.venv\Scripts\python.exe -c "from jobapplier import orchestrator; orchestrator.run_collection()"
+.venv\Scripts\python.exe -c "from jobapplier import orchestrator; orchestrator.run_pipeline()"
+.venv\Scripts\python.exe -c "from jobapplier import orchestrator; orchestrator.run_applications()"
 
 # ── Debug de Playwright (ver a seção Testes) ─────────────────────────────────
-$env:PWDEBUG=1; .venv\Scripts\python.exe -c "import orchestrator; orchestrator.run_applications()"
+$env:PWDEBUG=1; .venv\Scripts\python.exe -c "from jobapplier import orchestrator; orchestrator.run_applications()"
 ```
 
 ---
@@ -64,30 +66,82 @@ descarta vagas antes da etapa mais cara. Não reordene sem entender esse custo.
 
 ```
 run_collection()                      HTTP, sem IA
-  collectors/{greenhouse,lever,gupy}  → CollectedJob (hash = sha256(titulo+empresa+link))
+  jobapplier/collectors/*  → CollectedJob (hash = sha256(titulo+empresa+link))
   → vagas.status = 'nova'             dedup por hash
 
 run_pipeline()                        por vaga com status 'nova'
-  4A  filters/pre_filter              texto bruto, GRÁTIS      → 'filtrada_4a'
-  2   agents/normalizer               LLM → normalizado_json
-  4B  filters/post_filter             JSON estruturado, GRÁTIS → 'filtrada_4b'
-  3   agents/scorer                   LLM → score 0-100
+  4A  jobapplier/filters/pre_filter              texto bruto, GRÁTIS      → 'filtrada_4a'
+  2   jobapplier/agents/normalizer               LLM → normalizado_json
+  4B  jobapplier/filters/post_filter             JSON estruturado, GRÁTIS → 'filtrada_4b'
+  3   jobapplier/agents/scorer                   LLM → score 0-100
       score >= threshold_excelente    → 'aprovada'   (candidata automaticamente)
-      score >= threshold_bom          → 'pendente'   (aguarda humano em pages/3_Vagas.py)
+      score >= threshold_bom          → 'pendente'   (aguarda humano em ui/pages/3_Vagas.py)
       abaixo                          → 'rejeitada'
 
 run_applications()                    por vaga com status 'aprovada'
-  Módulo 9  safety/guard              limites e duplicidade ANTES de gastar nada
-  12  agents/resume_optimizer         LLM → perfil otimizado + delta ATS
-      generators/pdf                  → PDF
-  6   agents/cover_letter             LLM → texto
-  13  applicators/{greenhouse,linkedin,gupy}   Playwright
+  Módulo 9  jobapplier/safety/guard            limites e duplicidade ANTES de gastar nada
+  12  jobapplier/agents/resume_optimizer       LLM → perfil otimizado + delta ATS
+      jobapplier/generators/pdf                → PDF
+  6   jobapplier/agents/cover_letter           LLM → texto
+  13  jobapplier/applicators/*   Playwright
   → candidaturas + vagas.status = 'candidatada' | 'aguardando_resposta' | 'erro'
 ```
 
 Agendamento em `orchestrator.main()`: coleta a cada 2h, pipeline em +5min,
 candidaturas em +15min, relatório por e-mail às 8h. APScheduler com jobstore no
 Postgres, `max_instances=1` e `coalesce=True`.
+
+---
+
+## Estrutura
+
+Pacote único de domínio. Antes havia dez pacotes soltos na raiz — `agents`,
+`config`, `filters`, `generators` e companhia —, todos importáveis do diretório
+corrente. Nomes genéricos assim colidem com pacotes instalados, não deixam
+fronteira entre aplicação e infraestrutura de repositório, e obrigam o pytest a
+depender de `pythonpath = ["."]`.
+
+```
+run.py                 único entry point na raiz; ancora cwd e PYTHONPATH
+jobapplier/            domínio — nada de UI aqui
+  orchestrator.py      agendamento e as três esteiras do pipeline
+  paths.py             caminhos ancorados na raiz do repositório
+  tempo.py             datas: agora_utc(), hoje(), de_timestamp(), para_naive()
+  collectors/          Greenhouse, Lever, Gupy (APIs REST, sem browser)
+  filters/             4A pré-normalização, 4B pós-normalização
+  agents/              normalizer, scorer, resume_optimizer, cover_letter
+  llm/                 abstração de provedor — infraestrutura, não agente
+  applicators/         Greenhouse, LinkedIn, Gupy via Playwright
+  safety/              Módulo 9: limites, delays, duplicidade
+  resume_parser/       PDF/DOCX → JSON (extractors + parser)
+  generators/          JSON → PDF
+  notifications/       relatório diário por e-mail
+  database/            models, repositórios, migrations Alembic
+  config/              config.json e segredos
+ui/                    Streamlit — descartável por design
+  _bootstrap.py        põe a raiz no sys.path; importe primeiro em cada página
+  app.py, pages/
+tests/                 unit · e2e · integration
+docs/                  especificação original
+scripts/               instalação
+```
+
+Regras que essa estrutura impõe:
+
+- **`jobapplier/` não importa de `ui/`.** A dependência é só num sentido. Quando
+  o Streamlit for trocado por FastAPI, nada em `jobapplier/` muda.
+- **`llm/` não é submódulo de `agents/`.** Abstração de provedor é
+  infraestrutura. Há teste garantindo que `jobapplier.agents.llm` não exista.
+- **Nunca construa caminho relativo ao cwd.** Use `jobapplier.paths`. Havia oito
+  pontos com `Path("data/...")`, que só funcionavam porque todo entry point era
+  executado da raiz; rodar um script de outro diretório criava um `data/` no
+  lugar errado, em silêncio.
+- **Data e hora só por `jobapplier.tempo`.** As colunas do banco são naive-UTC e
+  essa decisão está documentada num lugar, não espalhada em chamadas
+  `datetime.utcnow()` deprecadas.
+- **`ui/` precisa de `import _bootstrap` como primeira linha**, em `app.py` e em
+  toda página: `streamlit run ui/app.py` coloca `ui/` no sys.path, não a raiz, e
+  o Streamlit pode executar uma página isolada num deep-link.
 
 ---
 
@@ -102,17 +156,17 @@ autorizada, currículo com informação falsa. Não relaxe nenhum sem pedir.
    nunca deve ser o padrão. Este bug já existiu: o agendador candidatava
    `pendente` junto e a fila de aprovação era decorativa.
 
-2. **Todo caminho de candidatura passa por `safety/guard.py` antes de gastar
+2. **Todo caminho de candidatura passa por `jobapplier/safety/guard.py` antes de gastar
    qualquer recurso.** Na ordem: plataforma tem automação? já candidatou? limite
    de 24h e disjuntor liberam? Só então marca `em_andamento` e chama LLM ou abre
    browser. Nunca chame um applicator direto sem esses gates. A constante
-   `MAX_DAILY_APPLICATIONS` já existiu em `applicators/linkedin.py` sem nunca ser
+   `MAX_DAILY_APPLICATIONS` já existiu em `jobapplier/applicators/linkedin.py` sem nunca ser
    consultada, e o resultado foi ~100 candidaturas em dois dias.
 
 3. **O sistema nunca afirma o que o currículo não sustenta.** O otimizador pode
    reordenar tecnologias, reformular descrição com terminologia da vaga e ajustar
    ênfase; nunca criar experiência, empresa, cargo, data, certificação ou
-   tecnologia inexistente (restrição no prompt de `agents/resume_optimizer.py`).
+   tecnologia inexistente (restrição no prompt de `jobapplier/agents/resume_optimizer.py`).
    O mesmo vale para `_auto_answer` nos applicators: pergunta que não sabemos
    responder retorna `None` e vira pergunta manual, **nunca um chute**. Dois bugs
    já violaram isso — responder "Sim" para inglês sem inglês no currículo, e
@@ -121,7 +175,7 @@ autorizada, currículo com informação falsa. Não relaxe nenhum sem pedir.
 4. **Nada de `data/` é versionado, nunca.** Contém API keys, CPF, cookies de
    sessão do LinkedIn, 101 MB de dados do Postgres e currículos gerados.
 
-5. **Segredo novo vai para `.env` via `config/secrets.py`**, nunca para
+5. **Segredo novo vai para `.env` via `jobapplier/config/secrets.py`**, nunca para
    `data/config.json`. O fallback para JSON existe apenas para compatibilidade e
    emite warning. A UI grava via `secrets.gravar_env`.
 
@@ -131,11 +185,11 @@ autorizada, currículo com informação falsa. Não relaxe nenhum sem pedir.
    sempre funcionar sem ele. Nunca escreva teste automatizado que faça login no
    LinkedIn.
 
-7. **Nenhum módulo instancia SDK de LLM direto.** Sempre `agents.llm.get_client()`.
+7. **Nenhum módulo instancia SDK de LLM direto.** Sempre `jobapplier.llm.get_client()`.
 
 ---
 
-## Camada de LLM (`agents/llm/`)
+## Camada de LLM (`jobapplier/llm/`)
 
 Três provedores, contrato único. Trocar de provedor é configuração, não código.
 
@@ -147,11 +201,11 @@ Três provedores, contrato único. Trocar de provedor é configuração, não c�
 
 Padrões são o tier de custo baixo de cada família, coerente com o projeto: o
 pipeline 4A/4B existe justamente para economizar chamada. Alternativas em
-`MODELOS_SUGERIDOS` (`providers.py`), e qualquer ID aceito pelo provedor serve
+`MODELOS_SUGERIDOS`, e qualquer ID aceito pelo provedor serve
 via `llm.modelo` / `AIJOB_LLM_MODELO`.
 
 ```python
-from agents.llm import get_client
+from jobapplier.llm import get_client
 
 client = get_client()                                  # resolve por config/ambiente
 client = get_client(provedor="openai", modelo="gpt-5.6-sol")
@@ -167,10 +221,10 @@ dados = client.generate_json(prompt, temperature=0.1)  # dict | list
 (TTL 24h), retry com backoff em rate limit, e `extrair_json` tolerante. Provedor
 concreto implementa só `_gerar_texto` e, opcionalmente, `_gerar_json_nativo`.
 
-Ao adicionar um provedor: subclasse de `LLMClient` em `providers.py`, declare
+Ao adicionar um provedor: subclasse de `LLMClient` em `jobapplier/llm/providers.py`, declare
 `provedor`/`modelo_padrao`/`env_chave`/`pacote_pip`, registre em `PROVEDORES` e
 `MODELOS_SUGERIDOS`, adicione a `ORDEM_PADRAO` e a `PROVEDOR_INFO` em
-`pages/1_Setup.py`. Há teste garantindo que todo provedor registrado declara os
+`ui/pages/1_Setup.py`. Há teste garantindo que todo provedor registrado declara os
 metadados e que o padrão está entre os sugeridos.
 
 **Modo JSON é nativo por provedor** — mais confiável que instruir no prompt e
@@ -187,11 +241,11 @@ para o próximo em vez de derrubar todas as vagas restantes do ciclo.
 `ClienteComFallback` não é subclasse de `LLMClient` de propósito — só reexpõe a
 interface pública.
 
-`agents/gemini_client.py` é fachada depreciada. Não use em código novo.
+O shim `agents/gemini_client.py` foi removido — não havia mais nenhum importador.
 
 ---
 
-## Módulo 9 — Controle de Risco (`safety/guard.py`)
+## Módulo 9 — Controle de Risco (`jobapplier/safety/guard.py`)
 
 Janela **deslizante de 24h**, não dia-calendário: dia-calendário permite 10
 candidaturas às 23h50 e outras 10 às 00h10, exatamente a rajada que a detecção
@@ -242,6 +296,13 @@ Roda sempre, inclusive em cada salvamento se quiser. Cobre a lógica que **decid
 | `test_collectors.py` | parsing de resposta de API, hash de dedup |
 | `test_config.py` | precedência ambiente > JSON |
 | `test_resume_parser.py` | schema do ResumeJSON, erros de parsing |
+| `test_importabilidade.py` | todo módulo do pacote importa; contrato de estrutura |
+
+`test_importabilidade.py` enumera os módulos com `pkgutil` em vez de listá-los,
+então cobre arquivo novo sem ninguém atualizar o teste. Existe por causa de uma
+quebra real: um import de `pathlib.Path` foi removido de `applicators/linkedin.py`
+enquanto `Path` seguia em uso nas anotações, e a suíte passou verde porque nenhum
+teste importava aquele módulo — o applicator só é carregado em tempo de execução.
 
 Para LLM, use o padrão `ClienteFake` de `test_llm.py` em vez de mock de SDK:
 subclasse de `LLMClient` com respostas e erros roteirizados. Testa a lógica
@@ -339,7 +400,7 @@ mudança de schema é migration versionada, nunca `create_all` em produção),
 `psycopg2-binary` (driver Postgres), `apscheduler[sqlalchemy]` (jobs periódicos
 com jobstore no Postgres, então o agendamento sobrevive a restart).
 
-**LLM.** `openai`, `google-genai`, `anthropic` — todos atrás de `agents/llm`.
+**LLM.** `openai`, `google-genai`, `anthropic` — todos atrás de `jobapplier/llm`.
 Note que o SDK do Gemini é `google-genai` (import `google.genai`), **não** o
 legado `google-generativeai`; dois testes já ficaram silenciosamente pulados por
 causa dessa confusão.
@@ -382,7 +443,7 @@ contrato e ser registrado em `PLATAFORMAS_COM_AUTOMACAO` no orquestrador.
 calculado no `__post_init__`.
 
 **Frontend (Streamlit).** É descartável por design — não coloque regra de negócio
-em `pages/`. Hoje `pages/3_Vagas.py` ainda escreve `AprovacoesHistorico` direto,
+em `pages/`. Hoje `ui/pages/3_Vagas.py` ainda escreve `AprovacoesHistorico` direto,
 dívida a pagar na Fase 1 com a camada `services/`. Padrões do projeto:
 `st.set_page_config` primeiro (por isso `E402` é ignorado em `pages/`), guarda de
 `config.is_setup_complete()` no topo, imports de banco dentro de `try` com
@@ -391,7 +452,7 @@ dívida a pagar na Fase 1 com a camada `services/`. Padrões do projeto:
 **Erros.** Prefira exceção específica a `except Exception` cego. Onde o cego é
 proposital (jitter, cache, coleta de uma empresa entre 150), comente o porquê.
 
-**Escrita de segredo** só via `config/secrets.py`.
+**Escrita de segredo** só via `jobapplier/config/secrets.py`.
 
 ---
 
@@ -436,16 +497,14 @@ distribuída. Todos são aditivos **desde que as costuras acima existam**.
 
 ## Armadilhas conhecidas
 
-`ruff check .` aponta ~61 achados que são dívida consciente, majoritariamente os
-dois primeiros itens abaixo.
+`ruff check .` passa limpo, e é exatamente o que o CI roda. Duas regras estão em
+`ignore` no `pyproject.toml` com justificativa escrita — `SIM102` e `RUF001`,
+ambas avaliadas caso a caso e recusadas por mérito, não por conveniência. O
+`ruff format` **não** é aplicado neste projeto: reformataria ~48 arquivos
+desfazendo alinhamentos intencionais, sem ganho funcional.
 
-- **`datetime.utcnow()`** está deprecado (Python 3.13) e aparece em ~10 pontos
-  (`DTZ003`). As colunas do banco são naive-UTC. Em código novo use
-  `datetime.now(timezone.utc).replace(tzinfo=None)` — há helpers `agora_utc()` em
-  `agents/llm/base.py` e `_agora()` em `safety/guard.py`. `data_publicacao` do
-  Greenhouse vem tz-aware; cuidado ao comparar.
-- **`except Exception` cego** em ~7 pontos (`SIM105`) e `raise` sem `from`
-  (`B904`).
+- **`data_publicacao` do Greenhouse chega tz-aware** e as colunas do banco são
+  naive-UTC. Comparar os dois levanta `TypeError`; use `tempo.para_naive()`.
 - **`bulk_create_if_not_exists`** faz um SELECT por linha. Com ~150 slugs
   Greenhouse são milhares de round-trips por ciclo; deve virar
   `INSERT ... ON CONFLICT DO NOTHING`.
@@ -455,14 +514,20 @@ dois primeiros itens abaixo.
   Some com a tabela de credenciais cifradas na Fase 1.
 - **`candidaturas` sem constraint única em `vaga_id`** — a proteção contra
   duplicata é só `guard.ja_candidatado()`, em código.
-- **Windows-only**: `install.ps1`, sem Dockerfile da aplicação. Impede rodar 24/7
-  num VPS, que é o ponto de um bot de candidaturas.
-- **`applicators/lever.py` não existe** (Módulo 14). Vagas Lever recebem status
-  `sem_automacao` e são ignoradas.
+- **Windows-only**: `scripts/install.ps1`, sem Dockerfile da aplicação. Impede
+  rodar 24/7 num VPS, que é o ponto de um bot de candidaturas.
+- **`jobapplier/applicators/lever.py` não existe** (Módulo 14). Vagas Lever
+  recebem status `sem_automacao` e são ignoradas.
+- **O filtro por senioridade do Módulo 4B nunca foi implementado.** O mapa
+  `SENIORIDADE_ORDEM` em `post_filter.py` segue lá sem uso, com comentário
+  explicando: implementar exige decidir a política (rejeitar acima do nível do
+  candidato, abaixo, ou ambos) e isso muda quais vagas passam.
 - **`Empresa`** (Módulo 17) e a **aprovação adaptativa** que consome
   `AprovacoesHistorico` estão no plano e no schema, mas sem implementação.
 - **`candidaturas.screenshots_path`** existe e ninguém escreve nela.
-- **Sem CI.** Nenhum GitHub Actions; testes e lint rodam só localmente.
+- **O CI nunca executou.** `.github/workflows/ci.yml` existe (ruff + pytest +
+  checagem de que nada de `data/` foi versionado), mas o repositório ainda não
+  tem remoto.
 
-`initial_plan.md` é a especificação original completa, com a numeração de módulos
+`docs/initial_plan.md` é a especificação original completa, com a numeração de módulos
 que o código referencia.

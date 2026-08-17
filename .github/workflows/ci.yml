@@ -1,0 +1,55 @@
+name: CI
+
+# Roda em push e PR. Os testes 'live' ficam de fora por construção: o
+# addopts do pyproject.toml aplica -m 'not live', então nenhuma execução
+# automática toca site de terceiros.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check --output-format=github .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - run: pip install -r requirements.txt
+
+      # Só Chromium: é o único browser que os applicators usam.
+      - name: Instalar Chromium do Playwright
+        run: python -m playwright install --with-deps chromium
+
+      # Sem serviço de Postgres: tests/integration pula sozinho quando o banco
+      # não responde. Se algum dia esses testes virarem obrigatórios, adicione
+      # um bloco services: postgres aqui e rode com -m db.
+      - name: Testes unitários e e2e
+        run: python -m pytest -v
+
+      - name: Verificar que nada de 'data/' vazou para o versionamento
+        run: |
+          if git ls-files --error-unmatch data/ .env 2>/dev/null; then
+            echo "::error::arquivo sensível versionado (data/ ou .env)"
+            exit 1
+          fi
+          echo "ok: nenhum arquivo sensível versionado"

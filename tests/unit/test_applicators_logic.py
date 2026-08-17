@@ -7,7 +7,7 @@ cobertura nenhuma.
 Não tocam Playwright nem rede: recebem dicts e devolvem valores. O teste de
 seletor/DOM fica em tests/e2e.
 """
-from applicators.greenhouse import (
+from jobapplier.applicators.greenhouse import (
     _auto_answer,
     _is_diversidade,
     _is_yes_no,

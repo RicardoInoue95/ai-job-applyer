@@ -6,8 +6,8 @@ tests/e2e/fixtures.
 """
 import pytest
 
-from applicators.greenhouse import _pw_fill_text, _pw_select_react
-from safety import guard
+from jobapplier.applicators.greenhouse import _pw_fill_text, _pw_select_react
+from jobapplier.safety import guard
 
 pytestmark = pytest.mark.e2e
 

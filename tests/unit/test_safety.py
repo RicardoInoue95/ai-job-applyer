@@ -6,7 +6,7 @@ integração, que exigem Postgres.
 """
 import pytest
 
-from safety import guard
+from jobapplier.safety import guard
 
 # ── limite_diario ─────────────────────────────────────────────────────────────
 

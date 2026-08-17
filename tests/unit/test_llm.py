@@ -8,9 +8,9 @@ import json
 
 import pytest
 
-from agents import llm
-from agents.llm import base
-from agents.llm.base import (
+from jobapplier import llm
+from jobapplier.llm import base
+from jobapplier.llm.base import (
     LLMClient,
     LLMError,
     LLMRespostaVazia,
@@ -275,7 +275,7 @@ def test_provedor_desconhecido_no_teste_de_conexao():
 
 
 def test_sem_nenhuma_chave_levanta_com_instrucao(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     for classe in llm.PROVEDORES.values():
         monkeypatch.delenv(f"AIJOB_{classe.env_chave}", raising=False)
@@ -287,7 +287,7 @@ def test_sem_nenhuma_chave_levanta_com_instrucao(monkeypatch, tmp_path):
 
 
 def test_autodeteccao_escolhe_por_ordem_de_preferencia(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     for classe in llm.PROVEDORES.values():
         monkeypatch.delenv(f"AIJOB_{classe.env_chave}", raising=False)
@@ -303,7 +303,7 @@ def test_autodeteccao_escolhe_por_ordem_de_preferencia(monkeypatch, tmp_path):
 
 
 def test_openai_ganha_de_gemini_quando_ambos_tem_chave(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     monkeypatch.delenv("AIJOB_LLM_PROVEDOR", raising=False)
     monkeypatch.delenv("AIJOB_ANTHROPIC_API_KEY", raising=False)
@@ -315,7 +315,7 @@ def test_openai_ganha_de_gemini_quando_ambos_tem_chave(monkeypatch, tmp_path):
 
 
 def test_provedor_explicito_vence_autodeteccao(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     monkeypatch.setenv("AIJOB_GEMINI_API_KEY", "chave-g")
     monkeypatch.setenv("AIJOB_OPENAI_API_KEY", "chave-o")
@@ -326,7 +326,7 @@ def test_provedor_explicito_vence_autodeteccao(monkeypatch, tmp_path):
 
 
 def test_provedor_selecionado_sem_chave_da_erro_claro(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     monkeypatch.delenv("AIJOB_ANTHROPIC_API_KEY", raising=False)
     cfg = ConfigManager(path=tmp_path / "vazio.json")
@@ -336,7 +336,7 @@ def test_provedor_selecionado_sem_chave_da_erro_claro(monkeypatch, tmp_path):
 
 
 def test_chave_do_provedor_cai_no_config_json(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     monkeypatch.delenv("AIJOB_OPENAI_API_KEY", raising=False)
     cfg = ConfigManager(path=tmp_path / "c.json")
@@ -345,7 +345,7 @@ def test_chave_do_provedor_cai_no_config_json(monkeypatch, tmp_path):
 
 
 def test_gemini_mantem_caminho_legado_no_config(monkeypatch, tmp_path):
-    from config.manager import ConfigManager
+    from jobapplier.config.manager import ConfigManager
 
     monkeypatch.delenv("AIJOB_GEMINI_API_KEY", raising=False)
     cfg = ConfigManager(path=tmp_path / "c.json")
@@ -356,7 +356,7 @@ def test_gemini_mantem_caminho_legado_no_config(monkeypatch, tmp_path):
 # ── SDK ausente ───────────────────────────────────────────────────────────────
 
 def test_sdk_ausente_da_mensagem_com_pip_install(monkeypatch):
-    from agents.llm import providers
+    from jobapplier.llm import providers
 
     def falha(pacote, pip):
         raise llm.LLMDependenciaAusente(f"SDK '{pacote}' não instalado. Rode: pip install {pip}")

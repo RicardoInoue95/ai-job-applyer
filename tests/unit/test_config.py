@@ -1,7 +1,7 @@
 
 import pytest
 
-from config.manager import ConfigManager
+from jobapplier.config.manager import ConfigManager
 
 
 @pytest.fixture

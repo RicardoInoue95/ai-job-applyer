@@ -4,7 +4,7 @@ São funções puras e decidem se uma vaga custa uma chamada Gemini ou não. Um
 falso negativo aqui descarta silenciosamente vaga boa; um falso positivo gasta
 token. Estavam sem cobertura nenhuma.
 """
-from filters import post_filter, pre_filter
+from jobapplier.filters import post_filter, pre_filter
 
 
 class VagaFake:

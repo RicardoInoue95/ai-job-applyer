@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from resume_parser.exceptions import ParseError, UnsupportedFormatError
-from resume_parser.models import ResumeJSON
+from jobapplier.resume_parser.exceptions import ParseError, UnsupportedFormatError
+from jobapplier.resume_parser.models import ResumeJSON
 
 SAMPLE_RESUME_JSON = {
     "nome": "Ricardo Inoue",
@@ -63,7 +63,7 @@ def test_resume_json_missing_optional_fields():
 
 def test_unsupported_format_raises():
     pytest.importorskip("pdfplumber", reason="pdfplumber not installed")
-    from resume_parser.extractors.factory import get_extractor
+    from jobapplier.resume_parser.extractors.factory import get_extractor
     with pytest.raises(UnsupportedFormatError):
         get_extractor(Path("resume.txt"))
 
@@ -74,7 +74,7 @@ def test_unsupported_format_raises():
 # e por isso eram silenciosamente pulados.
 
 def test_llm_parser_calls_client():
-    from resume_parser.parsers import LLMResumeParser
+    from jobapplier.resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     mock_client.generate_json.return_value = SAMPLE_RESUME_JSON
@@ -87,7 +87,7 @@ def test_llm_parser_calls_client():
 
 
 def test_llm_parser_raises_on_invalid_json():
-    from resume_parser.parsers import LLMResumeParser
+    from jobapplier.resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     mock_client.generate_json.side_effect = json.JSONDecodeError("test", "", 0)
@@ -98,7 +98,7 @@ def test_llm_parser_raises_on_invalid_json():
 
 
 def test_llm_parser_raises_on_schema_mismatch():
-    from resume_parser.parsers import LLMResumeParser
+    from jobapplier.resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     mock_client.generate_json.return_value = {"campo": "inesperado"}
@@ -110,7 +110,7 @@ def test_llm_parser_raises_on_schema_mismatch():
 
 def test_llm_parser_raises_on_empty_text():
     """PDF do qual a extração não tirou texto não deve virar chamada de LLM."""
-    from resume_parser.parsers import LLMResumeParser
+    from jobapplier.resume_parser.parsers import LLMResumeParser
 
     mock_client = MagicMock()
     parser = LLMResumeParser(client=mock_client)
@@ -120,7 +120,7 @@ def test_llm_parser_raises_on_empty_text():
 
 
 def test_alias_antigo_do_parser_ainda_importa():
-    from resume_parser.parsers import GeminiResumeParser, LLMResumeParser
+    from jobapplier.resume_parser.parsers import GeminiResumeParser, LLMResumeParser
 
     assert GeminiResumeParser is LLMResumeParser
 
