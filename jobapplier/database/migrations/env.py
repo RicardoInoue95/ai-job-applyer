@@ -7,8 +7,8 @@ from sqlalchemy import engine_from_config, pool
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 
-from jobapplier.database.connection import DATABASE_URL  # noqa: E402
-from jobapplier.database.models import Base  # noqa: E402
+from jobapplier.database.connection import DATABASE_URL
+from jobapplier.database.models import Base
 
 config = context.config
 
