@@ -5,7 +5,14 @@ from pathlib import Path
 
 import requests
 
-from jobapplier.applicators.base import capturar_falha, resultado
+from jobapplier.applicators.base import (
+    ENVIADA_CONFIRMADA,
+    FALHA_AUTOMACAO,
+    REVISAO_MANUAL,
+    avaliar_confirmacao,
+    capturar_falha,
+    resultado,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -450,18 +457,16 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     cpf = config_dados.get("cpf", "").strip()
     if not cpf:
         logger.warning("CPF não configurado — candidatura não enviada.")
-        return {
-            "status": "perguntas_pendentes",
-            "application_id": None,
-            "mensagem": "CPF não configurado. Configure em Setup → Etapa 3 → Dados pessoais.",
-            "perguntas_manuais": ["Qual é o seu CPF? (configure em Setup → Etapa 3)"],
-        }
+        return resultado(
+            REVISAO_MANUAL,
+            "CPF não configurado. Configure em Setup → Etapa 3 → Dados pessoais.",
+            perguntas_manuais=["Qual é o seu CPF? (configure em Setup → Etapa 3)"],
+        )
 
     link = getattr(vaga, "link", "") or ""
     parsed = _parse_link(link)
     if not parsed:
-        return {"status": "erro", "application_id": None,
-                "mensagem": f"Link inválido: {link}", "perguntas_manuais": []}
+        return resultado(FALHA_AUTOMACAO, f"Link inválido: {link}")
 
     slug, job_id = parsed
     normalizado = getattr(vaga, "normalizado_json", None) or {}
@@ -485,12 +490,11 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     ]
     if us_only_questions:
         logger.info("Vaga US-only detectada (%s) — pulando.", slug)
-        return {
-            "status": "perguntas_pendentes",
-            "application_id": None,
-            "mensagem": "Vaga exclusiva para residentes nos EUA (requer work authorization americana).",
-            "perguntas_manuais": us_only_questions,
-        }
+        return resultado(
+            REVISAO_MANUAL,
+            "Vaga exclusiva para residentes nos EUA (requer work authorization americana).",
+            perguntas_manuais=us_only_questions,
+        )
 
     # Pré-calcula respostas
     answer_map: dict[str, dict] = {}
@@ -627,23 +631,38 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
         )
 
         if not submit_btn:
+            evidencias = capturar_falha(page, "greenhouse", getattr(vaga, "id", "?"))
             browser.close()
-            return {"status": "erro", "application_id": None,
-                    "mensagem": "Botão de submit não encontrado na página",
-                    "perguntas_manuais": perguntas_manuais}
+            return resultado(FALHA_AUTOMACAO, "Botão de submit não encontrado na página",
+                             perguntas_manuais=perguntas_manuais, evidencias=evidencias)
 
         submit_btn.click()
 
+        # Sinal FORTE: o Greenhouse redireciona para uma URL de confirmação
+        # própria. Isso é prova; texto na página não é.
+        url_confirmacao = False
         try:
-            page.wait_for_url(re.compile(r"confirmation|thank|aplicou|candidat"), timeout=15000)
-            success = True
+            page.wait_for_url(re.compile(r"confirmation|application_confirmation"), timeout=15000)
+            url_confirmacao = True
         except Exception:
-            # Verifica por texto de sucesso na página
-            final_url = page.url
-            content = page.content().lower()
-            success = ("confirmação" in content or "obrigado" in content
-                       or "confirmation" in final_url or "thank" in content
-                       or ("candidatura" in content and "enviada" in content))
+            pass
+
+        final_url = page.url
+        content = page.content().lower()
+
+        sinais_fortes = {
+            "url de confirmação": url_confirmacao or "confirmation" in final_url.lower(),
+            "elemento de confirmação": page.query_selector(
+                "#application_confirmation, .application-confirmation, "
+                "[data-testid*='confirmation']"
+            ) is not None,
+        }
+        # FRACOS: texto genérico. "obrigado" sozinho marcava sucesso antes e
+        # casa com qualquer rodapé de agradecimento.
+        sinais_fracos = {
+            "texto de agradecimento": ("obrigado" in content or "thank" in content),
+            "texto de candidatura enviada": ("candidatura" in content and "enviada" in content),
+        }
 
         # Captura possíveis erros de validação
         validation_errors = []
@@ -661,22 +680,20 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
         # try/except de topo — uma exceção sobe para o orquestrador, que marca a
         # vaga como erro; aqui cobrimos a falha silenciosa, que é o caso comum.
         evidencias = []
-        if not success:
+        if not any(sinais_fortes.values()):
             evidencias = capturar_falha(page, "greenhouse", getattr(vaga, "id", "?"))
 
         browser.close()
 
-    if success:
-        logger.info("Candidatura Greenhouse enviada com sucesso via Playwright!")
-        return {"status": "enviada", "application_id": None,
-                "mensagem": "Candidatura enviada com sucesso via formulário web.",
-                "perguntas_manuais": perguntas_manuais}
+    status, justificativa = avaliar_confirmacao(
+        sinais_fortes, perguntas_manuais=perguntas_manuais, sinais_fracos=sinais_fracos,
+    )
+    if validation_errors and status != ENVIADA_CONFIRMADA:
+        justificativa += f". Erros de validação: {'; '.join(validation_errors)}"
 
-    if perguntas_manuais or validation_errors:
-        erros_str = "; ".join(validation_errors) if validation_errors else ""
-        msg = f"Perguntas sem resposta: {perguntas_manuais}. Erros: {erros_str}" if erros_str else f"Perguntas: {perguntas_manuais}"
-        return resultado("perguntas_pendentes", msg,
-                         perguntas_manuais=perguntas_manuais, evidencias=evidencias)
-
-    return resultado("erro", "Formulário enviado mas confirmação não detectada.",
+    logger.log(
+        logging.INFO if status == ENVIADA_CONFIRMADA else logging.WARNING,
+        "Greenhouse: %s — %s", status, justificativa,
+    )
+    return resultado(status, justificativa,
                      perguntas_manuais=perguntas_manuais, evidencias=evidencias)

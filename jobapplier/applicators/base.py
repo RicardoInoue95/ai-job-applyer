@@ -31,9 +31,74 @@ from jobapplier.tempo import agora_utc
 
 logger = logging.getLogger(__name__)
 
-#: Status possíveis de uma candidatura. `erro` é falha técnica;
-#: `perguntas_pendentes` é sucesso parcial que exige intervenção humana.
-STATUS_VALIDOS = ("enviada", "perguntas_pendentes", "erro")
+# ── Status de candidatura ─────────────────────────────────────────────────────
+#
+# Antes eram três: enviada | perguntas_pendentes | erro. O problema não era a
+# quantidade, era `enviada` sair de um match de substring: o Greenhouse marcava
+# sucesso se a palavra "obrigado" aparecesse em qualquer lugar da página. Um
+# rodapé de agradecimento produzia falso positivo — e falso `enviada` é PIOR que
+# erro, porque `guard.ja_candidatado()` passa a bloquear aquela vaga para sempre.
+#
+# Agora sucesso exige prova inequívoca. Na dúvida, o desfecho é revisão humana.
+
+#: Confirmação inequívoca: página/URL de sucesso conhecida, ou protocolo.
+ENVIADA_CONFIRMADA = "enviada_confirmada"
+#: Formulário provavelmente submetido, mas sem prova. OU perguntas sem resposta.
+#: Nunca reenvie automaticamente — pode duplicar.
+REVISAO_MANUAL = "revisao_manual"
+#: Falha técnica antes ou durante o preenchimento. Nada foi submetido.
+FALHA_AUTOMACAO = "falha_automacao"
+#: Modo sombra: documentos preparados, envio deliberadamente não executado.
+SIMULADA = "simulada"
+
+STATUS_VALIDOS = (ENVIADA_CONFIRMADA, REVISAO_MANUAL, FALHA_AUTOMACAO, SIMULADA)
+
+#: Status que impedem nova tentativa automática: algo pode ter chegado à
+#: plataforma. Consultado por `guard.ja_candidatado`.
+STATUS_BLOQUEIA_RETENTATIVA = (ENVIADA_CONFIRMADA, REVISAO_MANUAL)
+
+#: Status legados, de antes desta mudança. Mantidos para leitura de linhas
+#: antigas do banco; nunca escritos por código novo.
+STATUS_LEGADOS = {
+    "enviada": ENVIADA_CONFIRMADA,
+    "perguntas_pendentes": REVISAO_MANUAL,
+    "erro": FALHA_AUTOMACAO,
+}
+
+
+def avaliar_confirmacao(
+    sinais_fortes: dict[str, bool],
+    perguntas_manuais: list[str] | None = None,
+    sinais_fracos: dict[str, bool] | None = None,
+) -> tuple[str, str]:
+    """Decide o status a partir das evidências. Retorna (status, justificativa).
+
+    ``sinais_fortes`` são provas: URL de confirmação, elemento de sucesso com id
+    de candidatura, protocolo. Um só basta para ENVIADA_CONFIRMADA.
+
+    ``sinais_fracos`` são indícios — texto genérico de agradecimento, botão
+    clicado sem erro. Nunca promovem a confirmado; servem para distinguir
+    "provavelmente submeteu" de "não chegou nem a submeter".
+
+    Pergunta sem resposta sempre resulta em revisão manual, mesmo com sinal
+    forte: um formulário aceito com pergunta em branco pede conferência.
+    """
+    perguntas = perguntas_manuais or []
+    fortes = [k for k, v in (sinais_fortes or {}).items() if v]
+    fracos = [k for k, v in (sinais_fracos or {}).items() if v]
+
+    if perguntas:
+        return REVISAO_MANUAL, (
+            f"{len(perguntas)} pergunta(s) sem resposta automática: {perguntas[:3]}"
+        )
+    if fortes:
+        return ENVIADA_CONFIRMADA, f"confirmação inequívoca via {', '.join(fortes)}"
+    if fracos:
+        return REVISAO_MANUAL, (
+            f"apenas indício de envio ({', '.join(fracos)}), sem confirmação "
+            "inequívoca — verifique manualmente se a candidatura chegou"
+        )
+    return FALHA_AUTOMACAO, "nenhum sinal de submissão"
 
 
 def resultado(

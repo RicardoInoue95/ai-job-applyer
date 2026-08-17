@@ -5,7 +5,13 @@ import re
 from pathlib import Path
 
 from jobapplier import paths
-from jobapplier.applicators.base import capturar_falha, resultado
+from jobapplier.applicators.base import (
+    ENVIADA_CONFIRMADA,
+    FALHA_AUTOMACAO,
+    avaliar_confirmacao,
+    capturar_falha,
+    resultado,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -259,17 +265,14 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
     Retorna dict: status, application_id, mensagem, perguntas_manuais
     """
     if not has_session():
-        return {
-            "status": "erro",
-            "application_id": None,
-            "mensagem": "Sessão LinkedIn não encontrada. Configure em Setup → Etapa 4.",
-            "perguntas_manuais": [],
-        }
+        return resultado(
+            FALHA_AUTOMACAO,
+            "Sessão LinkedIn não encontrada. Configure em Setup → Etapa 4.",
+        )
 
     link = getattr(vaga, "link", "") or ""
     if "linkedin.com" not in link:
-        return {"status": "erro", "application_id": None,
-                "mensagem": f"Link não é do LinkedIn: {link}", "perguntas_manuais": []}
+        return resultado(FALHA_AUTOMACAO, f"Link não é do LinkedIn: {link}")
 
     logger.info("LinkedIn Easy Apply: %s", link)
 
@@ -290,9 +293,10 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
 
             if "authwall" in page.url or "login" in page.url:
                 browser.close()
-                return {"status": "erro", "application_id": None,
-                        "mensagem": "Sessão expirada. Faça login novamente em Setup → Etapa 4.",
-                        "perguntas_manuais": []}
+                return resultado(
+                    FALHA_AUTOMACAO,
+                    "Sessão expirada. Faça login novamente em Setup → Etapa 4.",
+                )
 
             # Jitter de mouse/scroll antes de interagir (Módulo 9)
             from jobapplier.safety import guard
@@ -309,9 +313,10 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
 
             if not easy_apply_btn:
                 browser.close()
-                return {"status": "erro", "application_id": None,
-                        "mensagem": "Botão Easy Apply não encontrado — vaga pode não ter Easy Apply.",
-                        "perguntas_manuais": []}
+                return resultado(
+                    FALHA_AUTOMACAO,
+                    "Botão Easy Apply não encontrado — vaga pode não ter Easy Apply.",
+                )
 
             easy_apply_btn.click()
             page.wait_for_timeout(2000)
@@ -340,32 +345,48 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
                 if "submit" in label_text or "enviar" in label_text:
                     next_btn.click()
                     page.wait_for_timeout(3000)
-                    # Verifica confirmação
                     content = page.content().lower()
-                    success = (
-                        "candidatura enviada" in content
-                        or "application submitted" in content
-                        or "sua candidatura foi" in content
-                        or page.query_selector("[aria-label*='submitted']") is not None
+
+                    # FORTE: o LinkedIn mostra um modal próprio de pós-envio,
+                    # com aria-label/estrutura específicos.
+                    sinais_fortes = {
+                        "modal de candidatura enviada": page.query_selector(
+                            "[aria-label*='submitted'], [aria-label*='enviada'], "
+                            ".artdeco-modal--layer-confirmation, "
+                            "[data-test-modal-id*='post-apply']"
+                        ) is not None,
+                    }
+                    # FRACO: texto na página. O LinkedIn tem muita área de
+                    # recomendação onde essas frases aparecem sem relação com
+                    # esta candidatura.
+                    sinais_fracos = {
+                        "texto de candidatura enviada": (
+                            "candidatura enviada" in content
+                            or "application submitted" in content
+                            or "sua candidatura foi" in content
+                        ),
+                    }
+                    status, justificativa = avaliar_confirmacao(
+                        sinais_fortes, sinais_fracos=sinais_fracos,
                     )
+                    evidencias = []
+                    if status != ENVIADA_CONFIRMADA:
+                        evidencias = capturar_falha(page, "linkedin", getattr(vaga, "id", "?"))
                     browser.close()
-                    if success:
-                        logger.info("LinkedIn Easy Apply enviado com sucesso!")
-                        return {"status": "enviada", "application_id": None,
-                                "mensagem": "Candidatura enviada via LinkedIn Easy Apply.",
-                                "perguntas_manuais": []}
-                    else:
-                        return {"status": "erro", "application_id": None,
-                                "mensagem": "Submit clicado mas confirmação não detectada.",
-                                "perguntas_manuais": []}
+                    logger.log(
+                        logging.INFO if status == ENVIADA_CONFIRMADA else logging.WARNING,
+                        "LinkedIn: %s — %s", status, justificativa,
+                    )
+                    return resultado(status, justificativa, evidencias=evidencias)
 
                 next_btn.click()
                 page.wait_for_timeout(1500)
 
             browser.close()
-            return {"status": "erro", "application_id": None,
-                    "mensagem": "Não foi possível completar todos os passos do Easy Apply.",
-                    "perguntas_manuais": []}
+            return resultado(
+                FALHA_AUTOMACAO,
+                "Não foi possível completar todos os passos do Easy Apply.",
+            )
 
         except Exception as exc:
             logger.error("Erro no LinkedIn Easy Apply: %s", exc)

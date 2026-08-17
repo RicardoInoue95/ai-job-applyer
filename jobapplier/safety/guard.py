@@ -25,6 +25,7 @@ from datetime import timedelta
 
 from sqlalchemy import func
 
+from jobapplier.applicators import base as applicators
 from jobapplier.database.connection import get_session
 from jobapplier.database.models import Candidatura, Vaga
 from jobapplier.tempo import agora_utc
@@ -56,7 +57,12 @@ DEFAULT_DELAY_MAX = 90
 # pré-validação (CPF ausente, link inválido, sessão não encontrada) nunca toca a
 # plataforma, e contá-la queimaria a cota diária inteira sem uma única
 # candidatura enviada. Erros são cobertos pelo disjuntor.
-STATUS_CONTATO_REAL = ("enviada", "perguntas_pendentes")
+#: 'simulada' (modo sombra) NÃO entra: nada foi submetido, então não consome
+#: cota. Os nomes legados ficam para não perder o histórico já no banco.
+STATUS_CONTATO_REAL = (
+    *applicators.STATUS_BLOQUEIA_RETENTATIVA,
+    "enviada", "perguntas_pendentes",   # legados, pré-mudança de vocabulário
+)
 
 
 

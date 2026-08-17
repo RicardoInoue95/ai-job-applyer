@@ -4,7 +4,14 @@ import logging
 import re
 from pathlib import Path
 
-from jobapplier.applicators.base import capturar_falha, resultado
+from jobapplier.applicators.base import (
+    ENVIADA_CONFIRMADA,
+    FALHA_AUTOMACAO,
+    REVISAO_MANUAL,
+    avaliar_confirmacao,
+    capturar_falha,
+    resultado,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +30,7 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
     link = getattr(vaga, "link", "") or ""
     parsed = _parse_link(link)
     if not parsed:
-        return {
-            "status": "erro",
-            "application_id": None,
-            "mensagem": f"Link Gupy inválido: {link}",
-            "perguntas_manuais": [],
-        }
+        return resultado(FALHA_AUTOMACAO, f"Link Gupy inválido: {link}")
 
     slug, job_id = parsed
     form_url = f"https://{slug}.gupy.io/jobs/{job_id}/apply"
@@ -80,12 +82,11 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
 
             if pending:
                 browser.close()
-                return {
-                    "status": "perguntas_pendentes",
-                    "application_id": None,
-                    "mensagem": "Perguntas sem resposta automática no formulário Gupy.",
-                    "perguntas_manuais": pending,
-                }
+                return resultado(
+                    REVISAO_MANUAL,
+                    "Perguntas sem resposta automática no formulário Gupy.",
+                    perguntas_manuais=pending,
+                )
 
             # Submete
             submit_btn = (
@@ -96,42 +97,39 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
             )
             if not submit_btn:
                 browser.close()
-                return {
-                    "status": "erro",
-                    "application_id": None,
-                    "mensagem": "Botão de submissão não encontrado no formulário Gupy.",
-                    "perguntas_manuais": [],
-                }
+                return resultado(
+                    FALHA_AUTOMACAO,
+                    "Botão de submissão não encontrado no formulário Gupy.",
+                )
 
             submit_btn.click()
             page.wait_for_timeout(4000)
 
             content = page.content().lower()
-            success = (
-                "candidatura enviada" in content
-                or "obrigado" in content
-                or "application submitted" in content
-                or "thank you" in content
-                or "/success" in page.url
-                or "/confirmation" in page.url
-            )
-
-            browser.close()
-
-            if success:
-                logger.info("Gupy candidatura enviada com sucesso!")
-                return {
-                    "status": "enviada",
-                    "application_id": None,
-                    "mensagem": "Candidatura enviada via Gupy.",
-                    "perguntas_manuais": [],
-                }
-            return {
-                "status": "erro",
-                "application_id": None,
-                "mensagem": "Submit clicado mas confirmação Gupy não detectada.",
-                "perguntas_manuais": [],
+            # FORTE: o Gupy redireciona para /success ou /confirmation.
+            sinais_fortes = {
+                "url de sucesso": ("/success" in page.url or "/confirmation" in page.url),
             }
+            # FRACO: texto. "obrigado" casava com qualquer rodapé.
+            sinais_fracos = {
+                "texto de agradecimento": ("obrigado" in content or "thank you" in content),
+                "texto de candidatura enviada": (
+                    "candidatura enviada" in content or "application submitted" in content
+                ),
+            }
+            status, justificativa = avaliar_confirmacao(
+                sinais_fortes, perguntas_manuais=pending, sinais_fracos=sinais_fracos,
+            )
+            evidencias = []
+            if status != ENVIADA_CONFIRMADA:
+                evidencias = capturar_falha(page, "gupy", getattr(vaga, "id", "?"))
+            browser.close()
+            logger.log(
+                logging.INFO if status == ENVIADA_CONFIRMADA else logging.WARNING,
+                "Gupy: %s — %s", status, justificativa,
+            )
+            return resultado(status, justificativa,
+                             perguntas_manuais=pending, evidencias=evidencias)
 
         except Exception as exc:
             logger.error("Erro Gupy Playwright: %s", exc)

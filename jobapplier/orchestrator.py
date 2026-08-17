@@ -47,6 +47,17 @@ def persist_jobs(jobs: list[CollectedJob]) -> tuple[int, int]:
     return inserted, skipped
 
 
+#: Status da candidatura → status da vaga. 'aguardando_revisao' substitui o
+#: antigo 'aguardando_resposta', que sugeria espera pela empresa quando na
+#: verdade quem o sistema espera é VOCÊ.
+MAPA_STATUS_VAGA = {
+    "enviada_confirmada": "candidatada",
+    "revisao_manual": "aguardando_revisao",
+    "falha_automacao": "erro",
+    "simulada": "pronta_para_revisao",
+}
+
+
 GUPY_DEFAULT_KEYWORDS = [
     "Analista de BI", "Analista de Dados", "Analista de Business Intelligence",
     "Data Analyst", "BI Analyst", "Data Engineer", "Engenheiro de Dados",
@@ -295,6 +306,22 @@ def _executar_candidaturas() -> dict:
     # Devolve para a fila vagas travadas em 'em_andamento' por crash anterior.
     guard.liberar_orfaos()
 
+    # ── Modo sombra ──────────────────────────────────────────────────────────
+    # Padrão LIGADO. O sistema prepara tudo — currículo otimizado, PDF, cover
+    # letter — e NÃO submete. A vaga fica em 'pronta_para_revisao' e a candidatura
+    # é gravada como 'simulada', registrando o que teria sido enviado.
+    #
+    # Por que ligado por padrão: score de LLM não é probabilidade calibrada, e o
+    # threshold ativo (65) nunca foi validado contra desfecho real. Rode em sombra
+    # por algumas semanas, compare as decisões do sistema com as suas, e só então
+    # desligue com risco.modo_sombra = false.
+    modo_sombra = risco_cfg.get("modo_sombra", True)
+    if modo_sombra:
+        logger.warning(
+            "MODO SOMBRA ativo: candidaturas serão preparadas mas NÃO enviadas. "
+            "Para enviar de verdade: risco.modo_sombra = false em data/config.json."
+        )
+
     status_alvo = ["aprovada"]
     if risco_cfg.get("auto_aplicar_pendentes"):
         status_alvo.append("pendente")
@@ -404,33 +431,50 @@ def _executar_candidaturas() -> dict:
                 cover_letter_path.write_text(cover_letter_text, encoding="utf-8")
 
             # ── Módulo 13: Candidatura via plataforma detectada ───────────────
-            # O registry é a fonte única de verdade: 'plataforma' já passou por
-            # applicators.suportada() na guarda 1, então obter() não falha aqui.
-            logger.info("Enviando candidatura via %s...", plataforma)
-            resultado_app = applicators.obter(plataforma)(
-                vaga, resume_json, pdf_path, cover_letter_text
-            )
+            if modo_sombra:
+                resultado_app = applicators.resultado(
+                    applicators.SIMULADA,
+                    f"Modo sombra: documentos preparados para {plataforma}, "
+                    "envio não executado.",
+                )
+                logger.info(
+                    "MODO SOMBRA — teria candidatado vaga id=%d em %s (score %.0f). "
+                    "Currículo: %s", vaga.id, plataforma, vaga.score or 0, pdf_path.name,
+                )
+            else:
+                # Registry é a fonte única: 'plataforma' já passou por
+                # applicators.suportada() na guarda 1, então obter() não falha.
+                logger.info("Enviando candidatura via %s...", plataforma)
+                resultado_app = applicators.obter(plataforma)(
+                    vaga, resume_json, pdf_path, cover_letter_text
+                )
 
             status_cand = resultado_app["status"]
             desfechos[status_cand] = desfechos.get(status_cand, 0) + 1
-            if status_cand == "enviada":
-                novo_status_vaga = "candidatada"
-                logger.info("Candidatura enviada com sucesso!")
-            elif status_cand == "perguntas_pendentes":
-                novo_status_vaga = "aguardando_resposta"
-                logger.warning("Perguntas pendentes: %s", resultado_app["perguntas_manuais"])
-            else:
-                novo_status_vaga = "erro"
-                logger.error("Erro na candidatura: %s", resultado_app["mensagem"])
+            novo_status_vaga = MAPA_STATUS_VAGA.get(status_cand, "erro")
+
+            if status_cand == applicators.ENVIADA_CONFIRMADA:
+                logger.info("Candidatura confirmada: %s", resultado_app["mensagem"])
+            elif status_cand == applicators.REVISAO_MANUAL:
+                logger.warning(
+                    "Requer revisão humana: %s | perguntas: %s",
+                    resultado_app["mensagem"], resultado_app["perguntas_manuais"],
+                )
+            elif status_cand == applicators.FALHA_AUTOMACAO:
+                logger.error("Falha na automação: %s", resultado_app["mensagem"])
 
             # ── Persiste Candidatura ──────────────────────────────────────────
             with get_session() as session:
                 perguntas = resultado_app.get("perguntas_manuais", [])
                 erro_texto = None
-                if status_cand == "perguntas_pendentes" and perguntas:
+                if perguntas:
                     erro_texto = json.dumps(perguntas, ensure_ascii=False)
-                elif status_cand != "enviada":
+                elif status_cand != applicators.ENVIADA_CONFIRMADA:
                     erro_texto = resultado_app.get("mensagem", "")
+
+                # Evidências finalmente gravadas: a coluna screenshots_path
+                # existia desde o início e ninguém escrevia nela.
+                evidencias = resultado_app.get("evidencias") or []
 
                 cand = Candidatura(
                     vaga_id=vaga.id,
@@ -441,6 +485,7 @@ def _executar_candidaturas() -> dict:
                     ats_score_otimizado=ats_depois,
                     keywords_adicionadas=keywords_adicionadas,
                     cover_letter_path=str(cover_letter_path) if cover_letter_path else None,
+                    screenshots_path=";".join(evidencias) if evidencias else None,
                     erro=erro_texto,
                 )
                 session.add(cand)
