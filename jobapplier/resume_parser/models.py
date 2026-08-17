@@ -7,7 +7,10 @@ class Experiencia(BaseModel):
     cargo: str
     data_inicio: str | None = None
     data_fim: str | None = None
-    descricao: str = ""
+    # Lista de bullets é o formato que o prompt do otimizador exige e que o
+    # gerador de PDF renderiza. String única é aceita para currículos antigos,
+    # em que a descrição era um parágrafo corrido.
+    descricao: str | list[str] = ""
     tecnologias: list[str] = Field(default_factory=list)
     conquistas: list[str] = Field(default_factory=list)
 

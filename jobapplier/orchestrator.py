@@ -1,8 +1,7 @@
 import json
 import logging
-import sys
 
-from jobapplier import paths
+from jobapplier import log, paths
 from jobapplier.collectors.base import CollectedJob
 from jobapplier.collectors.greenhouse import GreenhouseCollector
 from jobapplier.collectors.lever import LeverCollector
@@ -13,11 +12,9 @@ from jobapplier.database.models import Vaga
 from jobapplier.database.repository import VagaRepository
 from jobapplier.tempo import agora_utc
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stdout,
-)
+# structlog sobre a stdlib: os módulos seguem usando logging.getLogger e ganham
+# run_id e saída em arquivo JSONL sem nenhuma alteração. Ver jobapplier/log.py.
+log.configurar()
 logger = logging.getLogger("orchestrator")
 
 # Carrega .env antes de qualquer acesso a segredo ou ao banco.
@@ -59,7 +56,7 @@ GUPY_DEFAULT_KEYWORDS = [
 ]
 
 
-def run_collection():
+def _executar_coleta() -> dict:
     config = ConfigManager()
     companies = config.get_target_companies()
 
@@ -120,27 +117,35 @@ def run_collection():
 
     if not all_jobs:
         logger.warning("Nenhuma empresa configurada para coleta. Configure no wizard.")
-        return
+        return {"coletadas": 0, "inseridas": 0, "duplicadas": 0}
 
     logger.info("Total coletado: %d vagas", len(all_jobs))
 
     inserted, skipped = persist_jobs(all_jobs)
     logger.info("Inseridas: %d | Duplicatas ignoradas: %d", inserted, skipped)
+    return {"coletadas": len(all_jobs), "inseridas": inserted, "duplicadas": skipped}
 
 
-def run_pipeline():
+def run_collection():
+    """Esteira 1 — coleta. Envolvida por log.execucao para ter run_id e registro."""
+    with log.execucao("coleta") as run_id:
+        metricas = _executar_coleta()
+        log.registrar_metricas(run_id, metricas)
+
+
+def _executar_pipeline() -> dict:
     """Módulos 4A → 2 → 4B → 3: filtra, normaliza e pontua vagas novas."""
     config = ConfigManager()
     api_key = secrets.gemini_api_key()
 
     if not api_key:
-        logger.warning("Gemini API key não configurada. Pipeline de inteligência ignorado.")
-        return
+        logger.warning("Nenhum provedor de LLM configurado. Pipeline ignorado.")
+        return {}
 
     resume_path = paths.RESUME_JSON
     if not resume_path.exists():
         logger.warning("Currículo não encontrado em %s. Pipeline ignorado.", resume_path)
-        return
+        return {}
 
     resume_json = json.loads(resume_path.read_text(encoding="utf-8"))
     coleta_config = config.get("coleta") or {}
@@ -165,7 +170,7 @@ def run_pipeline():
 
     if not vagas_novas:
         logger.info("Nenhuma vaga nova para processar.")
-        return
+        return {"vagas_novas": 0}
 
     logger.info("Pipeline iniciado: %d vagas novas", len(vagas_novas))
     stats = {"filtradas_4a": 0, "normalizadas": 0, "filtradas_4b": 0, "pontuadas": 0, "aprovadas": 0, "pendentes": 0, "rejeitadas": 0}
@@ -240,9 +245,16 @@ def run_pipeline():
         stats["filtradas_4a"], stats["normalizadas"], stats["filtradas_4b"],
         stats["pontuadas"], stats["aprovadas"], stats["pendentes"], stats["rejeitadas"],
     )
+    return {"vagas_novas": len(vagas_novas), **stats}
 
 
-def run_applications():
+def run_pipeline():
+    """Esteira 2 — filtros e scoring."""
+    with log.execucao("pipeline") as run_id:
+        log.registrar_metricas(run_id, _executar_pipeline())
+
+
+def _executar_candidaturas() -> dict:
     """Módulos 12 → 6 → 13: otimiza currículo, gera cover letter e candidata vagas aprovadas.
 
     Só processa vagas com status 'aprovada'. Vagas 'pendente' aguardam revisão
@@ -253,8 +265,8 @@ def run_applications():
     api_key = secrets.gemini_api_key()
 
     if not api_key:
-        logger.warning("Gemini API key não configurada.")
-        return
+        logger.warning("Nenhum provedor de LLM configurado.")
+        return {}
 
     resume_path = paths.RESUME_JSON
     resumes_dir = paths.RESUMES
@@ -263,15 +275,13 @@ def run_applications():
 
     if not resume_path.exists():
         logger.warning("Currículo não encontrado.")
-        return
+        return {}
 
     resume_json = json.loads(resume_path.read_text(encoding="utf-8"))
 
-    import jobapplier.applicators.gupy as gupy_applicator
-    import jobapplier.applicators.linkedin as li_applicator
     from jobapplier.agents.cover_letter import generate as gen_cover_letter
     from jobapplier.agents.resume_optimizer import optimize
-    from jobapplier.applicators import greenhouse as gh_applicator
+    from jobapplier.applicators import base as applicators
     from jobapplier.database.models import Candidatura
     from jobapplier.generators.pdf import generate_pdf
     from jobapplier.llm import get_client
@@ -284,11 +294,6 @@ def run_applications():
 
     # Devolve para a fila vagas travadas em 'em_andamento' por crash anterior.
     guard.liberar_orfaos()
-
-    # Plataformas com automação de candidatura implementada. Lever (Módulo 14)
-    # ainda não tem — antes essas vagas caíam no applicator do Greenhouse e
-    # falhavam depois de já ter gasto tokens Gemini.
-    PLATAFORMAS_COM_AUTOMACAO = {"greenhouse", "linkedin", "gupy"}
 
     status_alvo = ["aprovada"]
     if risco_cfg.get("auto_aplicar_pendentes"):
@@ -307,21 +312,24 @@ def run_applications():
 
     if not vagas_aprovadas:
         logger.info("Nenhuma vaga aguardando candidatura (status: %s).", status_alvo)
-        return
+        return {"fila": 0}
 
     logger.info("Fila de candidatura: %d vagas (status: %s)", len(vagas_aprovadas), status_alvo)
 
     processadas_neste_ciclo = 0
+    desfechos = {'enviada': 0, 'perguntas_pendentes': 0, 'erro': 0,
+                 'sem_automacao': 0, 'duplicada': 0, 'postergada': 0}
 
     for vaga in vagas_aprovadas:
         plataforma = (vaga.plataforma or "").lower()
 
         # ── Guarda 1: plataforma sem automação ───────────────────────────────
-        if plataforma not in PLATAFORMAS_COM_AUTOMACAO:
+        if not applicators.suportada(plataforma):
             logger.info(
                 "Vaga id=%d ignorada: plataforma '%s' sem automação implementada.",
                 vaga.id, plataforma,
             )
+            desfechos["sem_automacao"] += 1
             with get_session() as session:
                 session.query(Vaga).filter(Vaga.id == vaga.id).update(
                     {"status": "sem_automacao"}
@@ -331,6 +339,7 @@ def run_applications():
         # ── Guarda 2: nunca candidatar duas vezes ────────────────────────────
         if guard.ja_candidatado(vaga.id):
             logger.info("Vaga id=%d já tem candidatura enviada — pulando.", vaga.id)
+            desfechos["duplicada"] += 1
             with get_session() as session:
                 session.query(Vaga).filter(Vaga.id == vaga.id).update(
                     {"status": "candidatada"}
@@ -343,6 +352,7 @@ def run_applications():
         pode, motivo = guard.checar_limite(plataforma, cfg)
         if not pode:
             logger.warning("Vaga id=%d postergada: %s", vaga.id, motivo)
+            desfechos["postergada"] += 1
             continue
 
         # ── Espera humana entre candidaturas ─────────────────────────────────
@@ -394,18 +404,15 @@ def run_applications():
                 cover_letter_path.write_text(cover_letter_text, encoding="utf-8")
 
             # ── Módulo 13: Candidatura via plataforma detectada ───────────────
-            # 'plataforma' já validada contra PLATAFORMAS_COM_AUTOMACAO acima.
-            if plataforma == "linkedin":
-                logger.info("Enviando candidatura via LinkedIn Easy Apply...")
-                resultado_app = li_applicator.apply(vaga, resume_json, pdf_path, cover_letter_text)
-            elif plataforma == "gupy":
-                logger.info("Enviando candidatura via Gupy...")
-                resultado_app = gupy_applicator.apply(vaga, resume_json, pdf_path, cover_letter_text)
-            else:
-                logger.info("Enviando candidatura via Greenhouse...")
-                resultado_app = gh_applicator.apply(vaga, resume_json, pdf_path, cover_letter_text)
+            # O registry é a fonte única de verdade: 'plataforma' já passou por
+            # applicators.suportada() na guarda 1, então obter() não falha aqui.
+            logger.info("Enviando candidatura via %s...", plataforma)
+            resultado_app = applicators.obter(plataforma)(
+                vaga, resume_json, pdf_path, cover_letter_text
+            )
 
             status_cand = resultado_app["status"]
+            desfechos[status_cand] = desfechos.get(status_cand, 0) + 1
             if status_cand == "enviada":
                 novo_status_vaga = "candidatada"
                 logger.info("Candidatura enviada com sucesso!")
@@ -441,6 +448,7 @@ def run_applications():
 
         except Exception as exc:
             logger.error("Erro ao processar vaga id=%d: %s", vaga.id, exc)
+            desfechos["erro"] += 1
             with get_session() as session:
                 session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": "erro"})
                 cand = Candidatura(
@@ -449,6 +457,16 @@ def run_applications():
                     erro=str(exc),
                 )
                 session.add(cand)
+
+    logger.info("Ciclo de candidaturas: %s", desfechos)
+    return {"fila": len(vagas_aprovadas), "processadas": processadas_neste_ciclo,
+            **desfechos}
+
+
+def run_applications():
+    """Esteira 3 — otimização de currículo, cover letter e candidatura."""
+    with log.execucao("candidaturas") as run_id:
+        log.registrar_metricas(run_id, _executar_candidaturas())
 
 
 def main():
@@ -531,6 +549,31 @@ def main():
             hour=8,
             minute=0,
             id="daily_report",
+            replace_existing=True,
+        )
+
+        def _backup_diario():
+            """Dump do Postgres. O histórico de candidaturas não é recriável."""
+            import subprocess
+            import sys as _sys
+
+            with log.execucao("backup", persistir=False):
+                script = paths.RAIZ / "scripts" / "backup.py"
+                r = subprocess.run(
+                    [_sys.executable, str(script)],
+                    cwd=paths.RAIZ, capture_output=True, text=True, check=False,
+                )
+                if r.returncode == 0:
+                    logger.info("Backup concluído: %s", r.stdout.strip().splitlines()[-1:])
+                else:
+                    logger.error("Backup FALHOU: %s", (r.stderr or r.stdout)[-500:])
+
+        scheduler.add_job(
+            _backup_diario,
+            "cron",
+            hour=3,
+            minute=30,
+            id="backup_diario",
             replace_existing=True,
         )
 

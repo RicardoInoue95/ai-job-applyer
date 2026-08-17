@@ -5,6 +5,8 @@ from pathlib import Path
 
 import requests
 
+from jobapplier.applicators.base import capturar_falha, resultado
+
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://boards-api.greenhouse.io/v1/boards"
@@ -654,6 +656,14 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
         except Exception:
             pass
 
+        # Evidência antes de fechar: sem sucesso, o PNG/HTML é o que permite
+        # descobrir se o formulário mudou de layout. Este apply() não tem
+        # try/except de topo — uma exceção sobe para o orquestrador, que marca a
+        # vaga como erro; aqui cobrimos a falha silenciosa, que é o caso comum.
+        evidencias = []
+        if not success:
+            evidencias = capturar_falha(page, "greenhouse", getattr(vaga, "id", "?"))
+
         browser.close()
 
     if success:
@@ -665,9 +675,8 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     if perguntas_manuais or validation_errors:
         erros_str = "; ".join(validation_errors) if validation_errors else ""
         msg = f"Perguntas sem resposta: {perguntas_manuais}. Erros: {erros_str}" if erros_str else f"Perguntas: {perguntas_manuais}"
-        return {"status": "perguntas_pendentes", "application_id": None,
-                "mensagem": msg, "perguntas_manuais": perguntas_manuais}
+        return resultado("perguntas_pendentes", msg,
+                         perguntas_manuais=perguntas_manuais, evidencias=evidencias)
 
-    return {"status": "erro", "application_id": None,
-            "mensagem": "Formulário enviado mas confirmação não detectada.",
-            "perguntas_manuais": perguntas_manuais}
+    return resultado("erro", "Formulário enviado mas confirmação não detectada.",
+                     perguntas_manuais=perguntas_manuais, evidencias=evidencias)

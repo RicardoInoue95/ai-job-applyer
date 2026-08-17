@@ -4,6 +4,8 @@ import logging
 import re
 from pathlib import Path
 
+from jobapplier.applicators.base import capturar_falha, resultado
+
 logger = logging.getLogger(__name__)
 
 GUPY_JOB_RE = re.compile(r"https?://([^.]+)\.gupy\.io/jobs/(\d+)")
@@ -133,14 +135,10 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
 
         except Exception as exc:
             logger.error("Erro Gupy Playwright: %s", exc)
+            evidencias = capturar_falha(page, "gupy", getattr(vaga, "id", "?"))
             with contextlib.suppress(Exception):
                 browser.close()
-            return {
-                "status": "erro",
-                "application_id": None,
-                "mensagem": f"Erro: {exc}",
-                "perguntas_manuais": [],
-            }
+            return resultado("erro", f"Erro: {exc}", evidencias=evidencias)
 
 
 def _fill(page, selector: str, value: str) -> bool:

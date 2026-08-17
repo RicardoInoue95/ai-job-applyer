@@ -187,6 +187,33 @@ autorizada, currículo com informação falsa. Não relaxe nenhum sem pedir.
 
 7. **Nenhum módulo instancia SDK de LLM direto.** Sempre `jobapplier.llm.get_client()`.
 
+8. **Todo PDF gerado é renderizado em imagem e verificado.** `generate_pdf` chama
+   `gerar_preview_e_verificar` por padrão: PNG por página ao lado do arquivo, mais
+   checagem automática de geometria. Com `estrito=True` (padrão), problema grave
+   levanta `LayoutInvalidoError` e a candidatura não sai — **falha fechada**.
+   Nunca chame `generate_pdf(..., preview=False)` num caminho que envia currículo.
+   Currículos já foram enviados quebrados porque ninguém olhava o resultado e
+   nada verificava. Detalhes em [Regra dos PDFs](#regra-dos-pdfs).
+
+9. **Saída de LLM nunca vira artefato entregável sem normalização.** Este é o caso
+   geral do bug do PDF: `optimize()` devolvia o JSON do modelo direto para o
+   gerador, e quando o modelo serializava uma lista como string o currículo saía
+   com `['bullet um', 'bullet dois']` impresso. Todo ponto onde saída de LLM
+   cruza para um arquivo, um formulário ou o banco passa por normalização
+   (`_normalizar_saida`) ou validação Pydantic. Vale para cover letter,
+   `normalizado_json` e qualquer campo novo.
+
+10. **Limite, contador ou flag de segurança é criado e consultado no mesmo commit,
+    com teste.** `MAX_DAILY_APPLICATIONS = 10` existiu por semanas sem nenhum
+    chamador — segurança que não roda é pior que ausência de segurança, porque
+    passa a sensação de proteção. Toda guarda em `safety/` tem teste que falha se
+    ela for removida.
+
+11. **Segredo e PII nunca entram em log.** Desde que o log passou a ser gravado em
+    `data/logs/*.jsonl`, qualquer coisa logada fica em disco. Não logue
+    `config.load()`, o dict de `dados_pessoais`, conteúdo de currículo nem valor
+    de chave de API. Logue o nome da configuração, não o valor.
+
 ---
 
 ## Camada de LLM (`jobapplier/llm/`)

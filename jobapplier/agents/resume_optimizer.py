@@ -56,6 +56,44 @@ def _calc_ats_score(resume_techs: list[str], job_techs: list[str]) -> tuple[floa
     return round(score, 1), matched, missing
 
 
+#: Campos que o prompt exige como lista de strings e que o LLM às vezes devolve
+#: como string única — ou, pior, como string contendo o repr de uma lista.
+_CAMPOS_LISTA_EXPERIENCIA = ("descricao", "conquistas", "tecnologias")
+
+
+def _normalizar_saida(perfil: dict) -> dict:
+    """Força os campos de lista a serem realmente listas de strings.
+
+    A saída do LLM ia direto para o gerador de PDF, sem validação. Quando o
+    modelo devolvia ``descricao`` como ``"['bullet um', 'bullet dois']"``, o
+    currículo era impresso com colchetes e aspas e enviado assim ao recrutador.
+    Normalizar aqui é a correção na origem; `pdf.normalizar_itens` é a rede.
+    """
+    from jobapplier.generators.pdf import normalizar_itens
+
+    if not isinstance(perfil, dict):
+        return perfil
+
+    for chave in ("tecnologias", "soft_skills", "idiomas"):
+        if chave in perfil and not isinstance(perfil[chave], list):
+            perfil[chave] = normalizar_itens(perfil[chave])
+
+    experiencias = perfil.get("experiencias")
+    if isinstance(experiencias, list):
+        for exp in experiencias:
+            if not isinstance(exp, dict):
+                continue
+            for chave in _CAMPOS_LISTA_EXPERIENCIA:
+                if chave in exp:
+                    itens = normalizar_itens(exp[chave])
+                    # 'descricao' aceita string única no schema legado; manter
+                    # lista é o formato que o prompt pede e que o PDF renderiza
+                    # como bullets.
+                    exp[chave] = itens
+
+    return perfil
+
+
 def optimize(base_profile: dict, vaga, client: "LLMClient") -> dict:
     """Retorna dict com perfil otimizado + métricas ATS."""
     normalizado = getattr(vaga, "normalizado_json", None) or {}
@@ -88,6 +126,8 @@ def optimize(base_profile: dict, vaga, client: "LLMClient") -> dict:
     except Exception as exc:
         logger.error("Erro na otimização: %s", exc)
         otimizado = base_profile
+
+    otimizado = _normalizar_saida(otimizado)
 
     # ATS score após otimização
     resume_techs_opt = otimizado.get("tecnologias", [])

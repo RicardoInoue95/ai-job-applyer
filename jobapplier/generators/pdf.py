@@ -4,6 +4,20 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+class LayoutInvalidoError(Exception):
+    """O PDF gerado tem problema grave de layout e não deve ser enviado."""
+
+    def __init__(self, pdf_path, problemas, imagens=None):
+        self.pdf_path = Path(pdf_path)
+        self.problemas = list(problemas)
+        self.imagens = list(imagens or [])
+        detalhe = "; ".join(str(p) for p in self.problemas)
+        onde = f" Inspecione: {self.imagens[0]}" if self.imagens else ""
+        super().__init__(
+            f"{self.pdf_path.name} reprovado na checagem de layout — {detalhe}.{onde}"
+        )
+
 # ── Paleta ────────────────────────────────────────────────────────────────────
 NAVY  = "#1E3A5F"
 BLUE  = "#2D6A9F"
@@ -115,6 +129,42 @@ def _make_styles():
         "cert":       ParagraphStyle("cert",     fontName="Helvetica", fontSize=8.5,
                                      leading=12, textColor=HexColor(GRAY1)),
     }
+
+
+def normalizar_itens(valor) -> list[str]:
+    """Converte descrição/conquistas em lista de strings, seja qual for a forma.
+
+    Trata o caso que já quebrou currículos em produção: o LLM devolvendo a lista
+    **serializada como string** — ``"['bullet um', 'bullet dois']"``. Sem isto, o
+    PDF imprimia o repr literal, com colchetes, aspas e vírgulas, num parágrafo
+    corrido. A defesa de verdade está em `resume_optimizer.optimize`, que
+    normaliza na origem; aqui é a rede no limite da renderização, porque este é
+    o último ponto antes de o arquivo ir para um recrutador.
+    """
+    if not valor:
+        return []
+
+    if isinstance(valor, (list, tuple)):
+        return [str(v).strip() for v in valor if str(v).strip()]
+
+    texto = str(valor).strip()
+
+    # String que é um literal de lista/tupla Python ou array JSON.
+    if texto[:1] in "[(" and texto[-1:] in "])":
+        import ast
+
+        try:
+            interpretado = ast.literal_eval(texto)
+        except (ValueError, SyntaxError):
+            interpretado = None
+        if isinstance(interpretado, (list, tuple)):
+            logger.warning(
+                "descricao/conquistas veio como string contendo lista serializada; "
+                "desempacotado na renderização. Corrija a origem."
+            )
+            return [str(v).strip() for v in interpretado if str(v).strip()]
+
+    return [texto]
 
 
 def _render_description(desc, styles) -> list:
@@ -247,7 +297,24 @@ def _tech_table(groups, styles, doc_width):
 
 # ── Gerador principal ─────────────────────────────────────────────────────────
 
-def generate_pdf(resume: dict, output_path: Path) -> Path:
+def generate_pdf(
+    resume: dict,
+    output_path: Path,
+    preview: bool = True,
+    estrito: bool = True,
+) -> Path:
+    """Gera o PDF do currículo. Sempre renderiza um preview e verifica o layout.
+
+    Regra do projeto: nenhum PDF sai sem imagem de inspeção e sem checagem
+    automática. Currículos já foram enviados com layout quebrado justamente por
+    não haver nem uma coisa nem outra.
+
+    ``estrito=True`` (padrão) levanta ``LayoutInvalidoError`` quando a checagem
+    acha problema grave — falha fechada, para um currículo quebrado não chegar a
+    um recrutador. O orquestrador captura e marca a vaga como erro, para revisão
+    humana. Use ``estrito=False`` apenas em inspeção manual, quando você quer o
+    arquivo justamente para olhar o defeito.
+    """
     from reportlab.lib.colors import HexColor
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
@@ -340,17 +407,25 @@ def generate_pdf(resume: dict, output_path: Path) -> Path:
             ))
 
             desc = exp.get("descricao", "")
-            conquistas = exp.get("conquistas", [])
+            conquistas = normalizar_itens(exp.get("conquistas", []))
 
             # Merge desc + conquistas em uma lista unificada de bullets (max 7)
             all_items = []
             if desc:
-                if isinstance(desc, list):
-                    all_items.extend(desc)
-                elif "\n" in desc or (len(desc) > 120 and ". " in desc):
-                    all_items.extend([s.strip() for s in (desc.split("\n") if "\n" in desc else desc.split(". ")) if s.strip()])
+                itens_desc = normalizar_itens(desc)
+                if len(itens_desc) > 1:
+                    all_items.extend(itens_desc)
                 else:
-                    all_items.append(desc)
+                    # Item único: ainda pode ser um parágrafo corrido que vale
+                    # quebrar em bullets por linha ou por frase.
+                    texto = itens_desc[0]
+                    if "\n" in texto or (len(texto) > 120 and ". " in texto):
+                        separador = "\n" if "\n" in texto else ". "
+                        all_items.extend(
+                            [s.strip() for s in texto.split(separador) if s.strip()]
+                        )
+                    else:
+                        all_items.append(texto)
             # Só adiciona conquistas se descricao tem < 6 bullets (cap total em 6)
             if conquistas and len(all_items) < 6:
                 slots = 6 - len(all_items)
@@ -459,4 +534,13 @@ def generate_pdf(resume: dict, output_path: Path) -> Path:
 
     doc.build(story)
     logger.info("PDF gerado: %s", output_path)
+
+    if preview:
+        from jobapplier.generators.preview import gerar_preview_e_verificar
+
+        imagens, problemas = gerar_preview_e_verificar(output_path)
+        graves = [p for p in problemas if p.grave]
+        if graves and estrito:
+            raise LayoutInvalidoError(output_path, graves, imagens)
+
     return output_path

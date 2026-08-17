@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from jobapplier import paths
+from jobapplier.applicators.base import capturar_falha, resultado
 
 logger = logging.getLogger(__name__)
 
@@ -368,10 +369,11 @@ def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -
 
         except Exception as exc:
             logger.error("Erro no LinkedIn Easy Apply: %s", exc)
+            # Evidência ANTES de fechar o browser — depois a página não existe.
+            evidencias = capturar_falha(page, "linkedin", getattr(vaga, "id", "?"))
             with contextlib.suppress(Exception):
                 browser.close()
-            return {"status": "erro", "application_id": None,
-                    "mensagem": f"Erro: {exc}", "perguntas_manuais": []}
+            return resultado("erro", f"Erro: {exc}", evidencias=evidencias)
 
 
 # ── Coleta de vagas LinkedIn ──────────────────────────────────────────────────

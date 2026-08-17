@@ -65,8 +65,11 @@ class ConfigManager:
             "lever": self.get("coleta", "empresas_lever", default=[]),
         }
 
-    def get_scoring_thresholds(self) -> tuple[int, int]:
-        """Retorna (threshold_excelente, threshold_bom)."""
-        excelente = int(self.get("scoring", "threshold_excelente", default=85))
-        bom = int(self.get("scoring", "threshold_bom", default=70))
-        return excelente, bom
+    # get_scoring_thresholds() foi removido: era código morto e, pior, declarava
+    # default 85/70 enquanto o orquestrador usa 65/45. Dois valores contraditórios
+    # para "que score autoriza uma candidatura", sem ninguém notar, porque um
+    # deles nunca era chamado.
+    #
+    # Os thresholds ativos vivem em orchestrator._executar_pipeline. O número NÃO
+    # é calibrado — score de LLM não é probabilidade. Antes de mexer nele, rode em
+    # modo sombra e compare a decisão do sistema com a sua. Ver CLAUDE.md.

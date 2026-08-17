@@ -84,6 +84,27 @@ class AprovacoesHistorico(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
 
 
+class Execucao(Base):
+    """Uma execução de esteira do pipeline: coleta, pipeline ou candidaturas.
+
+    Serve a dois propósitos de propósito. Hoje é observabilidade durável — a
+    única forma de responder "o que rodou ontem e o que falhou" depois que o
+    terminal fechou. Amanhã, no desenho multi-usuário, é a linha de fila: ganha
+    `usuario_id` e um worker consome as pendentes.
+    """
+
+    __tablename__ = "execucoes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(32), index=True)
+    tipo: Mapped[str] = mapped_column(String(50), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="em_andamento", index=True)
+    iniciado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc, index=True)
+    terminado_em: Mapped[datetime | None] = mapped_column(DateTime)
+    metricas_json: Mapped[dict | None] = mapped_column(JSON)
+    erro: Mapped[str | None] = mapped_column(Text)
+
+
 class CacheGemini(Base):
     __tablename__ = "cache_gemini"
 
