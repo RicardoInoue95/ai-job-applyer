@@ -36,6 +36,9 @@ def persist_jobs(jobs: list[CollectedJob]) -> tuple[int, int]:
             descricao=job.descricao,
             link=job.link,
             data_publicacao=job.data_publicacao,
+            fonte_vaga_id=job.fonte_vaga_id,
+            fonte_empresa_id=job.fonte_empresa_id,
+            content_hash=job.content_hash,
             criado_em=agora_utc(),
         )
         vagas.append(vaga)
@@ -43,6 +46,9 @@ def persist_jobs(jobs: list[CollectedJob]) -> tuple[int, int]:
     with get_session() as session:
         repo = VagaRepository(session)
         inserted, skipped = repo.bulk_create_if_not_exists(vagas)
+        # As ignoradas já existiam: registra que continuam publicadas, para que
+        # `encerrada_em` possa ser inferido depois.
+        repo.marcar_revistas([v for v in vagas if v not in session.new])
 
     return inserted, skipped
 
@@ -121,6 +127,7 @@ def _executar_coleta() -> dict:
                     link=j["link"],
                     descricao=j.get("descricao", ""),
                     localizacao=j.get("localizacao"),
+                    fonte_vaga_id=j.get("fonte_vaga_id"),
                 ))
             logger.info("LinkedIn: %d vagas coletadas", len(raw_jobs))
     except Exception as exc:
@@ -265,7 +272,7 @@ def run_pipeline():
         log.registrar_metricas(run_id, _executar_pipeline())
 
 
-def _executar_candidaturas() -> dict:
+def _executar_candidaturas(run_id: str = "manual") -> dict:
     """Módulos 12 → 6 → 13: otimiza currículo, gera cover letter e candidata vagas aprovadas.
 
     Só processa vagas com status 'aprovada'. Vagas 'pendente' aguardam revisão
@@ -386,12 +393,16 @@ def _executar_candidaturas() -> dict:
         if processadas_neste_ciclo > 0:
             guard.espera_humana(cfg, contexto=plataforma)
 
+        # ── Guarda 4: lease ──────────────────────────────────────────────────
+        # Um UPDATE condicional faz a transição para 'em_andamento' e o bloqueio
+        # ao mesmo tempo. Se não casar, outra execução tem a vaga ou ela passou
+        # do teto de tentativas.
+        if not guard.adquirir_lease(vaga.id, dono=run_id):
+            desfechos["postergada"] += 1
+            continue
+
         logger.info("Processando vaga id=%d '%s'", vaga.id, vaga.titulo[:50])
         processadas_neste_ciclo += 1
-
-        # Marca como em andamento
-        with get_session() as session:
-            session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": "em_andamento"})
 
         try:
             # ── Módulo 12: Seleciona e otimiza perfil base ────────────────────
@@ -489,13 +500,15 @@ def _executar_candidaturas() -> dict:
                     erro=erro_texto,
                 )
                 session.add(cand)
-                session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": novo_status_vaga})
+
+            # Lease liberado junto com o desfecho.
+            guard.liberar_lease(vaga.id, novo_status_vaga)
 
         except Exception as exc:
             logger.error("Erro ao processar vaga id=%d: %s", vaga.id, exc)
             desfechos["erro"] += 1
+            guard.liberar_lease(vaga.id, "erro")
             with get_session() as session:
-                session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": "erro"})
                 cand = Candidatura(
                     vaga_id=vaga.id,
                     status="erro",
@@ -511,7 +524,7 @@ def _executar_candidaturas() -> dict:
 def run_applications():
     """Esteira 3 — otimização de currículo, cover letter e candidatura."""
     with log.execucao("candidaturas") as run_id:
-        log.registrar_metricas(run_id, _executar_candidaturas())
+        log.registrar_metricas(run_id, _executar_candidaturas(run_id))
 
 
 def main():

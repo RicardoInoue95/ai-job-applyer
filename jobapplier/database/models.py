@@ -4,9 +4,12 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -20,6 +23,17 @@ class Base(DeclarativeBase):
 
 class Vaga(Base):
     __tablename__ = "vagas"
+    __table_args__ = (
+        # Unicidade pela identidade da plataforma, parcial porque vagas antigas
+        # (e qualquer fonte futura sem id próprio) têm fonte_vaga_id nulo. O
+        # `hash` legado continua unique e cobre esses casos.
+        Index(
+            "uq_vagas_plataforma_fonte_id",
+            "plataforma", "fonte_vaga_id",
+            unique=True,
+            postgresql_where=text("fonte_vaga_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
@@ -33,6 +47,32 @@ class Vaga(Base):
     descricao: Mapped[str] = mapped_column(Text, default="")
     link: Mapped[str] = mapped_column(String(1000))
     data_publicacao: Mapped[datetime | None] = mapped_column(DateTime)
+    # ── Identidade estável ───────────────────────────────────────────────────
+    # O id da vaga na própria plataforma. Sobrevive a republicação, mudança de
+    # título e parâmetro extra no link — tudo que quebra o `hash` legado. As três
+    # APIs devolvem isso e o projeto vinha descartando.
+    fonte_vaga_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    fonte_empresa_id: Mapped[str | None] = mapped_column(String(120), index=True)
+    #: sha256 da descrição. Não é identidade: detecta que o texto mudou e a
+    #: normalização precisa ser refeita.
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+
+    # ── Ciclo de vida ────────────────────────────────────────────────────────
+    primeira_coleta_em: Mapped[datetime | None] = mapped_column(DateTime)
+    ultima_coleta_em: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    encerrada_em: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # ── Lease de processamento ───────────────────────────────────────────────
+    # Substitui a suposição de que max_instances=1 basta para saber que um
+    # 'em_andamento' é órfão. Com lease, órfão é o que tem lease EXPIRADO, o que
+    # continua correto se algum dia houver execução concorrente.
+    bloqueado_em: Mapped[datetime | None] = mapped_column(DateTime)
+    bloqueado_por: Mapped[str | None] = mapped_column(String(64))
+    lease_expira_em: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    #: Tentativas de candidatura. Acima do teto, a vaga para de ser reprocessada
+    #: em vez de envenenar o ciclo indefinidamente.
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+
     normalizado_json: Mapped[dict | None] = mapped_column(JSON)
     score: Mapped[float | None] = mapped_column(Float)
     score_breakdown_json: Mapped[dict | None] = mapped_column(JSON)
@@ -42,9 +82,18 @@ class Vaga(Base):
 
 class Candidatura(Base):
     __tablename__ = "candidaturas"
+    __table_args__ = (
+        # Idempotência garantida pelo BANCO, não por checagem em código.
+        # `guard.ja_candidatado()` continua existindo para evitar trabalho
+        # desnecessário, mas para uma ação irreversível como enviar candidatura a
+        # garantia tem de estar aqui. `ciclo` deixa recandidatura explícita: para
+        # aplicar de novo à mesma vaga, incremente o ciclo deliberadamente.
+        UniqueConstraint("vaga_id", "ciclo", name="uq_candidaturas_vaga_ciclo"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     vaga_id: Mapped[int] = mapped_column(Integer, index=True)
+    ciclo: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(50), default="pendente")
     perfil_base: Mapped[str | None] = mapped_column(String(50))
     curriculo_path: Mapped[str | None] = mapped_column(String(500))

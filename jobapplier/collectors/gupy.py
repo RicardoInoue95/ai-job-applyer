@@ -71,6 +71,8 @@ class GupyCollector(BaseCollector):
                     modalidade=_extract_modality(item),
                     senioridade=None,
                     data_publicacao=published,
+                    fonte_vaga_id=job_id,
+                    fonte_empresa_id=company_slug,
                 ))
 
             if len(items) < limit:
@@ -127,6 +129,8 @@ class GupyCollector(BaseCollector):
                     modalidade=_extract_modality(item),
                     senioridade=None,
                     data_publicacao=published,
+                    fonte_vaga_id=job_id,
+                    fonte_empresa_id=slug,
                 ))
 
         logger.info("Gupy search: %d vagas únicas para %s", len(jobs), keywords)

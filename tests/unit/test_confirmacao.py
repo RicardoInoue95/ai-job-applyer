@@ -21,7 +21,6 @@ from jobapplier.applicators.base import (
     suportada,
 )
 
-
 # ── avaliar_confirmacao ───────────────────────────────────────────────────────
 
 def test_sinal_forte_confirma():

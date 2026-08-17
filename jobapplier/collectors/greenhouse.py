@@ -114,6 +114,8 @@ class GreenhouseCollector(BaseCollector):
                 descricao=self._strip_html(item.get("content", "")),
                 link=item.get("absolute_url", ""),
                 data_publicacao=pub_date,
+                fonte_vaga_id=item.get("id"),
+                fonte_empresa_id=company_slug,
             )
             jobs.append(job)
 

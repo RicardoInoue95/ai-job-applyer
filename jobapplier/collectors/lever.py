@@ -54,6 +54,8 @@ class LeverCollector(BaseCollector):
                 modalidade=commitment,
                 descricao=description_plain,
                 link=item.get("hostedUrl", ""),
+                fonte_vaga_id=item.get("id"),
+                fonte_empresa_id=company_slug,
                 data_publicacao=pub_date,
             )
             jobs.append(job)

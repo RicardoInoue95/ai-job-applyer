@@ -489,6 +489,9 @@ def _scrape_cards(page, max_cards: int) -> list[dict]:
                 "link": link,
                 "plataforma": "linkedin",
                 "descricao": "",
+                # _extract_job_id já existia neste módulo; o id só não era
+                # propagado para o CollectedJob.
+                "fonte_vaga_id": _extract_job_id(link),
             })
 
         except Exception:
