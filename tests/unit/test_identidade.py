@@ -180,7 +180,7 @@ def test_colunas_de_lease_existem():
 def test_estado_em_head_quando_revisoes_batem():
     from jobapplier.database.schema import EstadoSchema
 
-    e = EstadoSchema(aplicada="005", esperada="005", acessivel=True)
+    e = EstadoSchema(aplicada="006", esperada="006", acessivel=True)
     assert e.em_head
     assert "em head" in e.mensagem()
 
@@ -188,7 +188,7 @@ def test_estado_em_head_quando_revisoes_batem():
 def test_schema_atrasado_nao_esta_em_head():
     from jobapplier.database.schema import EstadoSchema
 
-    e = EstadoSchema(aplicada="003", esperada="005", acessivel=True)
+    e = EstadoSchema(aplicada="003", esperada="006", acessivel=True)
     assert not e.em_head
     assert "alembic upgrade head" in e.mensagem()
     assert "backup" in e.mensagem(), "a mensagem deve mandar fazer backup antes"
@@ -197,7 +197,7 @@ def test_schema_atrasado_nao_esta_em_head():
 def test_banco_sem_migration_alguma():
     from jobapplier.database.schema import EstadoSchema
 
-    e = EstadoSchema(aplicada=None, esperada="005", acessivel=True)
+    e = EstadoSchema(aplicada=None, esperada="006", acessivel=True)
     assert not e.em_head
     assert "sem nenhuma migration" in e.mensagem()
 
@@ -205,7 +205,7 @@ def test_banco_sem_migration_alguma():
 def test_banco_inacessivel_nao_e_head():
     from jobapplier.database.schema import EstadoSchema
 
-    e = EstadoSchema(aplicada=None, esperada="005", acessivel=False, detalhe="conexão recusada")
+    e = EstadoSchema(aplicada=None, esperada="006", acessivel=False, detalhe="conexão recusada")
     assert not e.em_head
     assert "inacessível" in e.mensagem()
 
@@ -214,7 +214,8 @@ def test_revisao_esperada_vem_dos_arquivos_de_migration():
     """Lê as migrations em disco, sem tocar o banco."""
     from jobapplier.database.schema import revisao_esperada
 
-    assert revisao_esperada() == "005"
+    # Sobe a cada migration nova; o teste garante que a leitura funciona.
+    assert revisao_esperada() == "006"
 
 
 def test_verificar_nunca_levanta_com_banco_fora():
@@ -228,10 +229,10 @@ def test_codigo_distingue_banco_fora_de_schema_atrasado():
     """Subir o banco e rodar a migration são ações diferentes."""
     from jobapplier.database.schema import EstadoSchema
 
-    fora = EstadoSchema(aplicada=None, esperada="005", acessivel=False, detalhe="recusada")
-    atrasado = EstadoSchema(aplicada="003", esperada="005", acessivel=True)
-    vazio = EstadoSchema(aplicada=None, esperada="005", acessivel=True)
-    em_dia = EstadoSchema(aplicada="005", esperada="005", acessivel=True)
+    fora = EstadoSchema(aplicada=None, esperada="006", acessivel=False, detalhe="recusada")
+    atrasado = EstadoSchema(aplicada="003", esperada="006", acessivel=True)
+    vazio = EstadoSchema(aplicada=None, esperada="006", acessivel=True)
+    em_dia = EstadoSchema(aplicada="006", esperada="006", acessivel=True)
 
     assert fora.codigo == "banco_inacessivel"
     assert atrasado.codigo == "schema_desatualizado"
@@ -260,3 +261,72 @@ def test_porta_do_projeto_nao_e_a_padrao():
     from jobapplier.config import secrets
 
     assert "55432" in secrets.database_url()
+
+
+# ── Identidade explícita e retentativa por causa ──────────────────────────────
+
+def test_app_metadata_e_o_sinal_mais_forte():
+    """Nome de banco pode coincidir; marcador escrito por nós, não."""
+    from jobapplier.database import schema
+
+    assert schema.APPLICATION_ID == "ai_job_applier"
+
+
+def test_url_do_banco_em_modo_estrito_recusa_padrao(monkeypatch, tmp_path):
+    """Operação destrutiva não adivinha endereço. Foi assim que o Alembic quase
+    migrou o banco de outro projeto."""
+    import pytest
+
+    from jobapplier.config import secrets
+    from jobapplier.config.manager import ConfigManager
+
+    monkeypatch.delenv("AIJOB_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    cfg = ConfigManager(path=tmp_path / "vazio.json")
+
+    # Modo normal devolve o padrão de desenvolvimento.
+    assert "55432" in secrets.database_url(config=cfg)
+
+    # Modo estrito para.
+    with pytest.raises(secrets.ConfiguracaoAusente, match="AIJOB_DATABASE_URL"):
+        secrets.database_url(config=cfg, estrito=True)
+
+
+def test_bloqueio_permanente_nao_e_retentavel():
+    """Retentar tudo era o que produzia 2,36 tentativas por vaga."""
+    from jobapplier.applicators.descoberta import CodigoBloqueio, destino_apos_bloqueio
+
+    assert destino_apos_bloqueio(CodigoBloqueio.WORK_AUTHORIZATION) == "inelegivel"
+    assert destino_apos_bloqueio(CodigoBloqueio.VAGA_ENCERRADA) == "encerrada"
+
+
+def test_bloqueio_por_configuracao_espera_o_usuario():
+    from jobapplier.applicators.descoberta import CodigoBloqueio, destino_apos_bloqueio
+
+    assert destino_apos_bloqueio(CodigoBloqueio.CPF_AUSENTE) == "aguardando_configuracao"
+
+
+def test_bloqueio_por_suporte_espera_o_codigo():
+    from jobapplier.applicators.descoberta import CodigoBloqueio, destino_apos_bloqueio
+
+    assert destino_apos_bloqueio(CodigoBloqueio.TIPO_NAO_SUPORTADO) == "aguardando_suporte"
+
+
+def test_falha_transitoria_continua_retentavel():
+    """Timeout e 5xx podem mudar sozinhos; não viram status terminal."""
+    from jobapplier.applicators.descoberta import (
+        DESTINO_POR_BLOQUEIO,
+        CodigoBloqueio,
+        destino_apos_bloqueio,
+    )
+
+    assert destino_apos_bloqueio(CodigoBloqueio.DESCOBERTA_INDISPONIVEL) is None
+    assert destino_apos_bloqueio(None) is None
+    assert CodigoBloqueio.DESCOBERTA_INDISPONIVEL not in DESTINO_POR_BLOQUEIO
+
+
+def test_status_terminais_sao_distintos():
+    """Cada causa tem um destino próprio: as ações para sair deles diferem."""
+    from jobapplier.applicators.descoberta import DESTINO_POR_BLOQUEIO
+
+    assert len(set(DESTINO_POR_BLOQUEIO.values())) == len(DESTINO_POR_BLOQUEIO)

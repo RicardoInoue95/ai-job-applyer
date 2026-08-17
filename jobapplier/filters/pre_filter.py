@@ -46,9 +46,11 @@ def apply(vaga, config: dict) -> tuple[bool, str]:
     """
     if hasattr(vaga, "titulo"):
         titulo = vaga.titulo or ""
+        descricao = vaga.descricao or ""
         localizacao = vaga.localizacao or ""
     else:
         titulo = vaga.get("titulo", "")
+        descricao = vaga.get("descricao", "")
         localizacao = vaga.get("localizacao", "")
 
     titulo_lower = _normalize(titulo)
@@ -66,6 +68,24 @@ def apply(vaga, config: dict) -> tuple[bool, str]:
     for palavra in palavras_bloqueadas:
         if palavra in titulo_lower:
             return False, f"palavra bloqueada no título: '{palavra}'"
+
+    # ── Elegibilidade geográfica por sinal EXPLÍCITO ────────────────────────
+    # Antes de qualquer chamada de LLM. O baseline mostrou que vaga
+    # geograficamente inelegível avançava até o formulário e só ali revelava a
+    # incompatibilidade — depois de gastar normalização, scoring, currículo,
+    # PDF, cover letter e browser.
+    #
+    # Só linguagem inequívoca descarta aqui. Menção a "United States", cidade
+    # americana ou moeda em dólar não bastam: isolados, produziriam falso
+    # negativo. O que é ambíguo segue para o 4B.
+    from jobapplier.elegibilidade import avaliar_texto
+
+    avaliacao = avaliar_texto(descricao, config.get("dados_pessoais"))
+    if avaliacao.descarta:
+        return False, (
+            f"inelegível geograficamente ({avaliacao.categoria}): "
+            f"{avaliacao.evidencias[0] if avaliacao.evidencias else ''}"
+        )
 
     # Localização: só rejeita se for explicitamente fora do Brasil E não remota
     if localizacao:

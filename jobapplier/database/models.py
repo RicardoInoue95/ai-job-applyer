@@ -138,6 +138,21 @@ class AprovacoesHistorico(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
 
 
+class AppMetadata(Base):
+    """Identidade explícita da aplicação dona deste banco.
+
+    Terceiro sinal da confirmação, ao lado do nome do banco e da revisão do
+    Alembic — e o único que a aplicação escreve deliberadamente. Nome de banco
+    pode coincidir e tabela pode ser renomeada; um marcador gravado por nós, não.
+    """
+
+    __tablename__ = "app_metadata"
+
+    chave: Mapped[str] = mapped_column(String(64), primary_key=True)
+    valor: Mapped[str] = mapped_column(Text)
+    atualizado_em: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class Execucao(Base):
     """Uma execução de esteira do pipeline: coleta, pipeline ou candidaturas.
 

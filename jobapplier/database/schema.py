@@ -97,6 +97,11 @@ def revisao_aplicada() -> tuple[str | None, bool, str]:
 #: Nome do banco deste projeto. Migrar qualquer outro é acidente grave.
 BANCO_ESPERADO = "jobapplier"
 
+#: Marcador gravado pela migration 006. É o sinal mais forte: nome de banco pode
+#: coincidir e tabela pode ser renomeada, mas este valor só existe se ESTA
+#: aplicação criou o schema.
+APPLICATION_ID = "ai_job_applier"
+
 #: Tabelas que identificam o banco como sendo deste projeto.
 TABELAS_ASSINATURA = frozenset({"vagas", "candidaturas"})
 
@@ -123,6 +128,26 @@ def confirmar_identidade() -> tuple[bool, str]:
         tabelas = set(inspect(engine).get_table_names())
     except Exception as exc:
         return False, f"não foi possível identificar o banco: {exc}"
+
+    # Sinal mais forte primeiro: se o marcador existe, ele decide.
+    if "app_metadata" in tabelas:
+        try:
+            with engine.connect() as conn:
+                marcador = conn.execute(text(
+                    "SELECT valor FROM app_metadata WHERE chave = 'application_id'"
+                )).scalar()
+        except Exception as exc:
+            return False, f"app_metadata ilegível: {exc}"
+
+        if marcador != APPLICATION_ID:
+            return False, (
+                f"banco '{nome}' pertence à aplicação '{marcador}', não a "
+                f"'{APPLICATION_ID}'. Operação recusada."
+            )
+        return True, (
+            f"banco '{nome}' confirmado por app_metadata "
+            f"(application_id={marcador}, {len(tabelas)} tabelas)"
+        )
 
     if nome != BANCO_ESPERADO:
         return False, (

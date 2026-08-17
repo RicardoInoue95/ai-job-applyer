@@ -66,6 +66,38 @@ MOTIVO_POR_STATUS = {
     StatusDescoberta.RESPOSTA_INVALIDA: CodigoBloqueio.DESCOBERTA_INDISPONIVEL,
 }
 
+#: O que a automação deve fazer com a vaga depois de um bloqueio. Retentar tudo
+#: era o que produzia o fator de 2,36 tentativas por vaga: o agendador
+#: reprocessava a cada ciclo uma vaga que jamais mudaria de resultado sozinha.
+#:
+#: código de bloqueio → status terminal da vaga
+DESTINO_POR_BLOQUEIO = {
+    # Só muda se o USUÁRIO configurar algo.
+    CodigoBloqueio.CPF_AUSENTE: "aguardando_configuracao",
+    # Só muda se o CÓDIGO passar a suportar.
+    CodigoBloqueio.TIPO_NAO_SUPORTADO: "aguardando_suporte",
+    CodigoBloqueio.PERGUNTA_DESCONHECIDA: "aguardando_resposta_manual",
+    # Não muda nunca: o candidato não é elegível, ou a vaga não existe mais.
+    CodigoBloqueio.WORK_AUTHORIZATION: "inelegivel",
+    CodigoBloqueio.VAGA_ENCERRADA: "encerrada",
+}
+
+#: Status terminais: a vaga sai da fila e não volta por decurso de prazo. Só
+#: retorna por evento explícito — configuração atualizada, applicator atualizado,
+#: resposta manual fornecida, reavaliação pedida.
+STATUS_TERMINAIS = frozenset(DESTINO_POR_BLOQUEIO.values())
+
+
+def destino_apos_bloqueio(codigo: str | None) -> str | None:
+    """Status terminal para um código de bloqueio, ou None se for retentável."""
+    if not codigo:
+        return None
+    for cod, destino in DESTINO_POR_BLOQUEIO.items():
+        if str(cod) == str(codigo):
+            return destino
+    return None
+
+
 #: Falhas que valem retentar mais tarde — a vaga pode voltar a responder.
 STATUS_RETENTAVEIS = frozenset({
     StatusDescoberta.FALHA_TEMPORARIA,

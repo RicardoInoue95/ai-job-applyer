@@ -152,11 +152,33 @@ def gemini_api_key(config=None) -> str | None:
     return obter("GEMINI_API_KEY", "gemini", "api_key", config=config)
 
 
-def database_url(config=None) -> str:
-    return (
-        obter("DATABASE_URL", "database_url", config=config)
-        or "postgresql://jobapplier:jobapplier@localhost:55432/jobapplier"
-    )
+#: Endereço de desenvolvimento. Só é usado quando nada foi configurado E o
+#: chamador aceita palpite — nunca em operação destrutiva.
+_URL_DESENVOLVIMENTO = "postgresql://jobapplier:jobapplier@localhost:55432/jobapplier"
+
+
+class ConfiguracaoAusente(RuntimeError):
+    """Configuração obrigatória não definida, em contexto que não aceita padrão."""
+
+
+def database_url(config=None, estrito: bool = False) -> str:
+    """URL do banco. Com ``estrito``, ausência de configuração é erro.
+
+    O padrão de desenvolvimento existe por conveniência, mas em operação
+    destrutiva ele é perigoso: foi assim que o Alembic quase migrou o banco de
+    outro projeto — uma URL padrão apontava para uma porta compartilhada.
+    Migration, backup e restore usam ``estrito=True``: configuração ausente
+    significa PARAR, não adivinhar endereço.
+    """
+    url = obter("DATABASE_URL", "database_url", config=config)
+    if url:
+        return url
+    if estrito:
+        raise ConfiguracaoAusente(
+            "AIJOB_DATABASE_URL não configurada. Operação que escreve no banco "
+            "não usa endereço padrão — defina no .env antes de continuar."
+        )
+    return _URL_DESENVOLVIMENTO
 
 
 def smtp_credenciais(config=None) -> tuple[str | None, str | None]:

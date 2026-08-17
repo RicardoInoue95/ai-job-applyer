@@ -39,6 +39,18 @@ def apply(normalizado: dict, config: dict) -> tuple[bool, str]:
         elif modo == "qualquer" and not presentes:
             return False, f"nenhuma tecnologia obrigatória encontrada: {termos}"
 
+    # ── Elegibilidade geográfica estruturada ────────────────────────────────
+    # Só INELEGIVEL descarta. INCERTA segue: vaga que exige autorização mas
+    # oferece sponsorship pode ser viável, e descartá-la seria falso negativo.
+    from jobapplier.elegibilidade import avaliar_normalizado
+
+    geo = avaliar_normalizado(normalizado, config.get("dados_pessoais"))
+    if geo.descarta:
+        return False, (
+            f"inelegível geograficamente ({geo.categoria}): "
+            f"{geo.evidencias[0] if geo.evidencias else ''}"
+        )
+
     # ── Filtro de anos de experiência ────────────────────────────────────────
     anos_max_aceito = config.get("anos_experiencia_maximo")
     if anos_min and anos_max_aceito:

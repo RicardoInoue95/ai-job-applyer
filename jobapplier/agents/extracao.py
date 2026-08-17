@@ -17,6 +17,7 @@ import logging
 import re
 
 from jobapplier import vocabulario as vocab
+from jobapplier.elegibilidade import extrair_geografia as _geografia
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +66,16 @@ def normalizar(vaga) -> dict:
         "soft_skills": vocab.soft_skills_em(descricao),
         "idioma_principal": vocab.idioma_em(descricao),
         "setor_empresa": vocab.setor_em(empresa, descricao),
+        # Campos geográficos estruturados, consumidos pelo filtro 4B. Separam
+        # quatro dimensões que o sistema antes tratava como uma: onde a vaga
+        # está, de onde dá para trabalhar, onde é preciso residir e onde é
+        # preciso ter autorização.
+        **_geografia("\n".join((titulo, localizacao, descricao))),
         # Marca a origem: sem isto não há como saber depois se um score veio de
         # extração ou de modelo, nem comparar a qualidade dos dois.
         "_origem": "deterministica",
     }
+
 
 
 # ── Scoring ───────────────────────────────────────────────────────────────────
