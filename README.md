@@ -157,4 +157,4 @@ Código sob licença [MIT](LICENSE).
 
 ## Autor
 
-Ricardo Inoue · [GitHub](https://github.com/RicardoInoue95) · LinkedIn: <linkedin-url>
+Ricardo Inoue · [GitHub](https://github.com/RicardoInoue95)
