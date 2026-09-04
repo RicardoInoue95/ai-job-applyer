@@ -47,3 +47,8 @@ click==8.4.1
 # ── Desenvolvimento ──────────────────────────────────────────────────────────
 pytest==9.1.1
 ruff==0.16.3               # lint. O formatter NÃO é aplicado — ver CLAUDE.md
+
+# API local para a extensão de navegador (jobapplier/api.py). Já vinham como
+# dependência transitiva; declaradas porque agora há código nosso importando.
+starlette>=0.37
+uvicorn>=0.30

@@ -211,11 +211,24 @@ def test_banco_inacessivel_nao_e_head():
 
 
 def test_revisao_esperada_vem_dos_arquivos_de_migration():
-    """Lê as migrations em disco, sem tocar o banco."""
+    """Lê as migrations em disco, sem tocar o banco.
+
+    O esperado é **derivado**, não fixado: a versão anterior deste teste
+    afirmava `== "006"` e quebrou na primeira migration nova, exigindo editar um
+    número em duas mãos. Um teste que precisa ser atualizado a cada mudança
+    legítima ensina a atualizar sem ler — e é assim que ele para de proteger.
+    """
+    import re as _re
+
     from jobapplier.database.schema import revisao_esperada
 
-    # Sobe a cada migration nova; o teste garante que a leitura funciona.
-    assert revisao_esperada() == "006"
+    dos_arquivos = {
+        m.group(1)
+        for p in MIGRATIONS.glob("0*.py")
+        if (m := _re.search(r'^revision: str = "(\w+)"',
+                            p.read_text(encoding="utf-8"), _re.M))
+    }
+    assert revisao_esperada() == max(dos_arquivos)
 
 
 def test_verificar_nunca_levanta_com_banco_fora():
@@ -330,3 +343,60 @@ def test_status_terminais_sao_distintos():
     from jobapplier.applicators.descoberta import DESTINO_POR_BLOQUEIO
 
     assert len(set(DESTINO_POR_BLOQUEIO.values())) == len(DESTINO_POR_BLOQUEIO)
+
+
+# ── Dedup: identidade e hash somam, não se substituem ─────────────────────────
+
+def test_dedup_pega_linha_antiga_sem_fonte_vaga_id():
+    """Regressão que derrubou a coleta inteira.
+
+    Linhas coletadas antes da migration 004 têm fonte_vaga_id nulo. Ao recoletar
+    a mesma vaga, agora COM id, a busca por identidade não encontrava a linha
+    antiga; a inserção seguia e o unique legado do hash estourava, derrubando o
+    lote e todo o ciclo.
+    """
+    from jobapplier.database.repository import VagaRepository
+
+    class SessaoFake:
+        """Simula o banco com uma linha antiga: hash conhecido, id nulo."""
+
+        def __init__(self, hash_existente):
+            self.hash_existente = hash_existente
+            self.adicionados = []
+
+        def query(self, *colunas):
+            alvo = self.hash_existente
+
+            class Q:
+                def __init__(self, uma_coluna):
+                    self.uma_coluna = uma_coluna
+
+                def filter(self, *_):
+                    return self
+
+                def __iter__(self):
+                    # Só a consulta de hash devolve algo; a de identidade, nada.
+                    if self.uma_coluna:
+                        return iter([(alvo,)])
+                    return iter([])
+
+            return Q(len(colunas) == 1)
+
+        def add(self, vaga):
+            self.adicionados.append(vaga)
+
+        def flush(self):
+            pass
+
+    nova = Vaga(
+        hash="h-existente", titulo="Data Engineer", empresa="figma",
+        plataforma="greenhouse", link="https://x/1",
+        fonte_vaga_id="5364702004", fonte_empresa_id="figma",
+    )
+
+    sessao = SessaoFake("h-existente")
+    inseridas, ignoradas = VagaRepository(sessao).bulk_create_if_not_exists([nova])
+
+    assert inseridas == 0, "vaga já existente pelo hash não pode ser inserida de novo"
+    assert ignoradas == 1
+    assert not sessao.adicionados

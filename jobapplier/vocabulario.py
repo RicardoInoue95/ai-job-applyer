@@ -115,6 +115,32 @@ EQUIVALENCIAS: tuple[frozenset[str], ...] = (
 #: Crédito para tecnologia equivalente mas não idêntica.
 PESO_EQUIVALENTE = 0.6
 
+
+def equivalencias_uteis(tec_vaga, tec_curriculo) -> list[str]:
+    """O que a vaga pede, o candidato não tem, e tem o equivalente.
+
+    Metade da fila cai nesse caso — 248 de 499 vagas vivas, com AWS←Azure,
+    Airflow←Azure Data Factory e Tableau←Power BI no topo. Até aqui a
+    equivalência só existia no score (`PESO_EQUIVALENTE`) e na ordenação das
+    tecnologias: o currículo escrevia "Azure", a vaga procurava "AWS", e nem o
+    ATS nem o recrutador faziam a ponte.
+
+    Devolve só o que **aquela** vaga pede. Listar as catorze equivalências
+    sempre viraria enchimento — e enchimento denuncia o que está tentando
+    fazer. Quem chama escreve "equivalente: X", nunca "X" solto: a diferença
+    entre nomear uma correspondência verdadeira e afirmar experiência que não
+    existe é a invariante 3.
+    """
+    tenho = {canonizar(t) for t in (tec_curriculo or []) if t}
+    saida: list[str] = []
+    for bruto in tec_vaga or []:
+        pedido = canonizar(bruto)
+        if not pedido or pedido in tenho or pedido in saida:
+            continue
+        if any(sao_equivalentes(pedido, t) for t in tenho):
+            saida.append(pedido)
+    return saida
+
 # ── Senioridade ───────────────────────────────────────────────────────────────
 # Ordem importa: o primeiro casamento vence, então os termos mais específicos vêm
 # antes. "tech lead" tem de ser testado antes de "lead".
@@ -137,16 +163,55 @@ ORDEM_SENIORIDADE = {
 }
 
 # ── Modalidade ────────────────────────────────────────────────────────────────
+#: Ordem = precedência, e Híbrido vem primeiro por ser o mais específico: um
+#: anúncio híbrido quase sempre cita também "remoto" ("híbrido, 2 dias remotos")
+#: e "escritório". Com Remoto na frente, toda vaga híbrida virava remota.
 MODALIDADE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Híbrido", ("híbrido", "híbrida", "hibrido", "hibrida", "hybrid",
+                 "semipresencial", "semi-presencial",
+                 # "3 days in person", "2 dias no escritório": descreve híbrido
+                 # sem nunca usar a palavra.
+                 "days in person", "days in office", "days in the office",
+                 "days a week in", "days per week in", "dias no escritório",
+                 "dias por semana no")),
     # Formas masculina e feminina: anúncio escreve tanto "trabalho remoto" quanto
     # "vaga 100% remota". Só a masculina estava na lista.
     ("Remoto", ("100% remoto", "100% remota", "totalmente remoto", "totalmente remota",
                 "remoto", "remota", "remote", "home office", "teletrabalho",
                 "anywhere", "work from home")),
-    ("Híbrido", ("híbrido", "híbrida", "hibrido", "hibrida", "hybrid",
-                 "semipresencial", "semi-presencial")),
-    ("Presencial", ("presencial", "on-site", "onsite", "no escritório", "in office")),
+    ("Presencial", ("presencial", "on-site", "onsite", "no escritório", "in office",
+                    "office-first", "in-person collaboration", "in the office")),
 )
+
+#: Trechos que NEGAM o termo que vem logo depois. Sem isto, "we do not offer
+#: remote-only roles" casava "remote" e a vaga de Amsterdam entrava na fila como
+#: remota brasileira — e modalidade é o campo que alimenta o filtro geográfico,
+#: então o erro entra para dentro em vez de descartar.
+#: Cada entrada nega **explicitamente uma modalidade**. Tentei incluir "não há"
+#: e "sem trabalho" e medi o estrago: 40 vagas Presencial viravam Desconhecida,
+#: porque negação genérica apaga afirmação legítima que só passava perto. Uma
+#: entrada aqui precisa ser inequívoca sobre o que está negando.
+NEGACOES: tuple[str, ...] = (
+    "do not offer", "don't offer", "does not offer", "no longer offer",
+    "not a remote", "no remote", "not remote", "not fully remote",
+    "no home office", "not an office", "sem opção de", "sem opcao de",
+    "não oferecemos", "nao oferecemos", "não é remoto", "nao e remoto",
+    "não é presencial", "nao e presencial", "não aceitamos", "nao aceitamos",
+)
+
+#: Quanto antes do termo a negação ainda vale. "we do not offer remote-only" tem
+#: 17 caracteres entre uma coisa e outra; uma janela larga pegaria negação de
+#: outra frase.
+ALCANCE_NEGACAO = 40
+
+#: Palavra que, vindo logo depois, mostra que o termo NÃO fala de modalidade de
+#: trabalho: "hybrid cloud" e "nuvem híbrida" são arquitetura. Medi antes de
+#: escrever — em 1.684 anúncios com "híbrido/hybrid", o que vem depois é
+#: workplace, working, ways of working, schedule, position e role; arquitetura
+#: nem aparece entre os dezesseis mais comuns. A lista é curta porque o problema
+#: é pequeno, e alargá-la descartaria vaga híbrida de verdade.
+CONTEXTO_NAO_MODALIDADE = ("cloud", "nuvem", "architecture", "arquitetura",
+                           "infrastructure", "infraestrutura", "storage")
 
 # ── Setor da empresa ──────────────────────────────────────────────────────────
 SETOR: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -344,11 +409,68 @@ def senioridade_em(titulo: str, descricao: str = "") -> str:
     )
 
 
+#: A negação morre na fronteira de oração. Sem isto, "não oferecemos remoto;
+#: atuação presencial" tinha os DOIS termos negados pela mesma negação — a
+#: janela de 40 caracteres alcançava "presencial", e a vaga virava Desconhecida
+#: justamente quando o anúncio era o mais explícito possível.
+_FRONTEIRAS = (";", ".", "!", "?", "\n", " e ", " and ", " mas ", " but ")
+
+
+def _arquitetura(texto_baixo: str, posicao: int, termo: str) -> bool:
+    """O termo fala de arquitetura, não de onde se trabalha?
+
+    Olha dos dois lados porque a ordem muda com o idioma: em inglês é "hybrid
+    cloud" e em português "nuvem híbrida". Checar só depois deixava a metade
+    portuguesa passar.
+    """
+    depois = texto_baixo[posicao + len(termo):posicao + len(termo) + 20].lstrip()
+    antes = texto_baixo[max(0, posicao - 20):posicao].rstrip()
+    return (depois.startswith(CONTEXTO_NAO_MODALIDADE)
+            or antes.endswith(CONTEXTO_NAO_MODALIDADE))
+
+
+def _negado(texto_baixo: str, posicao: int, termo: str) -> bool:
+    """Há uma negação aplicável a esta ocorrência?
+
+    A janela **inclui o termo**: metade das negações o contém ("not a remote",
+    "no remote"), e olhando só para trás elas nunca casavam — "This is not a
+    remote position" continuava Remoto.
+
+    Só conta negação da mesma oração: o que vem depois de ponto, ponto e vírgula
+    ou conjunção já é outra afirmação. Sem esse corte, "não oferecemos remoto;
+    atuação presencial" tinha os dois termos negados pela mesma negação.
+    """
+    inicio = max(0, posicao - ALCANCE_NEGACAO)
+    janela = texto_baixo[inicio:posicao + len(termo)]
+    ate_o_termo = janela[:posicao - inicio]
+    corte = max((ate_o_termo.rfind(f) + len(f) for f in _FRONTEIRAS
+                 if f in ate_o_termo), default=0)
+    return any(n in janela[corte:] for n in NEGACOES)
+
+
 def modalidade_em(*textos: str) -> str:
+    """Modalidade da vaga, ignorando termo que aparece negado.
+
+    "We do not offer remote-only roles" contém "remote" e virava Remoto. Isso é
+    pior que um erro qualquer: modalidade alimenta o filtro geográfico, então a
+    vaga de Amsterdam entrava na fila como remota brasileira em vez de ser
+    descartada — o erro entra para dentro.
+
+    A ordem de `MODALIDADE` decide o empate, e Híbrido vem primeiro por ser o
+    mais específico.
+    """
     for texto in textos:
-        achado = _primeiro_match(texto, MODALIDADE)
-        if achado:
-            return achado
+        if not texto:
+            continue
+        baixo = texto.lower()
+        for rotulo, termos in MODALIDADE:
+            for termo in termos:
+                posicao = baixo.find(termo)
+                while posicao >= 0:
+                    if not _arquitetura(baixo, posicao, termo) and not _negado(
+                            baixo, posicao, termo):
+                        return rotulo
+                    posicao = baixo.find(termo, posicao + 1)
     return "Desconhecida"
 
 

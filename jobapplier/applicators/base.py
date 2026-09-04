@@ -48,14 +48,31 @@ ENVIADA_CONFIRMADA = "enviada_confirmada"
 REVISAO_MANUAL = "revisao_manual"
 #: Falha técnica antes ou durante o preenchimento. Nada foi submetido.
 FALHA_AUTOMACAO = "falha_automacao"
+#: Formulário preenchido por completo; o envio pede verificação humana — código
+#: por e-mail, CAPTCHA, confirmação de identidade. **Não é falha.**
+#:
+#: Existe porque a Adyen caía em FALHA_AUTOMACAO com "nenhum sinal de
+#: submissão", que o comentário acima descreve como falha técnica. Não era: o
+#: formulário tinha sido preenchido inteiro e parou num campo pedindo um código
+#: de 8 caracteres enviado ao e-mail do candidato. Confundir os dois custa duas
+#: coisas — infla a taxa de erro do funil com trabalho que deu certo, e esconde
+#: a única categoria que uma sessão assistida resolveria.
+AGUARDANDO_VERIFICACAO = "aguardando_verificacao"
 #: Modo sombra: documentos preparados, envio deliberadamente não executado.
 SIMULADA = "simulada"
 
-STATUS_VALIDOS = (ENVIADA_CONFIRMADA, REVISAO_MANUAL, FALHA_AUTOMACAO, SIMULADA)
+STATUS_VALIDOS = (ENVIADA_CONFIRMADA, REVISAO_MANUAL, FALHA_AUTOMACAO,
+                  AGUARDANDO_VERIFICACAO, SIMULADA)
 
 #: Status que impedem nova tentativa automática: algo pode ter chegado à
 #: plataforma. Consultado por `guard.ja_candidatado`.
-STATUS_BLOQUEIA_RETENTATIVA = (ENVIADA_CONFIRMADA, REVISAO_MANUAL)
+#:
+#: AGUARDANDO_VERIFICACAO entra: o formulário foi preenchido e a plataforma já
+#: disparou um código para o candidato. Retentar sozinho repreencheria tudo e
+#: dispararia outro código, em laço, sem nunca conseguir passar — só um humano
+#: passa desse ponto, e é para isso que existe a sessão assistida.
+STATUS_BLOQUEIA_RETENTATIVA = (ENVIADA_CONFIRMADA, REVISAO_MANUAL,
+                               AGUARDANDO_VERIFICACAO)
 
 #: Status legados, de antes desta mudança. Mantidos para leitura de linhas
 #: antigas do banco; nunca escritos por código novo.
@@ -70,6 +87,7 @@ def avaliar_confirmacao(
     sinais_fortes: dict[str, bool],
     perguntas_manuais: list[str] | None = None,
     sinais_fracos: dict[str, bool] | None = None,
+    verificacao_humana: bool = False,
 ) -> tuple[str, str]:
     """Decide o status a partir das evidências. Retorna (status, justificativa).
 
@@ -79,6 +97,11 @@ def avaliar_confirmacao(
     ``sinais_fracos`` são indícios — texto genérico de agradecimento, botão
     clicado sem erro. Nunca promovem a confirmado; servem para distinguir
     "provavelmente submeteu" de "não chegou nem a submeter".
+
+    ``verificacao_humana`` diz que a página exibe um passo que só um humano
+    passa. Vem depois dos sinais fortes de propósito: se a candidatura foi
+    confirmada, o campo de verificação que ainda estiver na tela é resíduo, e
+    rebaixar um envio confirmado seria pior que ignorá-lo.
 
     Pergunta sem resposta sempre resulta em revisão manual, mesmo com sinal
     forte: um formulário aceito com pergunta em branco pede conferência.
@@ -97,6 +120,11 @@ def avaliar_confirmacao(
         return REVISAO_MANUAL, (
             f"apenas indício de envio ({', '.join(fracos)}), sem confirmação "
             "inequívoca — verifique manualmente se a candidatura chegou"
+        )
+    if verificacao_humana:
+        return AGUARDANDO_VERIFICACAO, (
+            "formulário preenchido; o envio pede verificação humana "
+            "(código, CAPTCHA) — finalize em uma sessão assistida"
         )
     return FALHA_AUTOMACAO, "nenhum sinal de submissão"
 
@@ -241,10 +269,31 @@ def _carregar(modulo: str) -> Callable:
 #: automação. Lever (Módulo 14) não está aqui de propósito: não foi implementado,
 #: e antes as vagas dele caíam no applicator do Greenhouse e falhavam depois de
 #: já ter gasto tokens de LLM.
+#:
+#: A Gupy saiu daqui por decisão, não por falta de código — ver
+#: ``SEM_AUTOMACAO_POR_DESIGN``.
 PLATAFORMAS: dict[str, Callable] = {
     "greenhouse": _carregar("greenhouse"),
     "linkedin": _carregar("linkedin"),
-    "gupy": _carregar("gupy"),
+    # Lever preenche tudo e para no hCaptcha: entra aqui porque a automação faz
+    # o trabalho, mas nunca devolve ENVIADA sozinha — o desfecho é
+    # AGUARDANDO_VERIFICACAO e quem conclui é `scripts/finalizar.py`.
+    "lever": _carregar("lever"),
+}
+
+#: Plataforma → por que não há automação. Distinto de "ainda não implementado":
+#: aqui a ausência é deliberada e não deve ser "corrigida" num turno futuro.
+SEM_AUTOMACAO_POR_DESIGN: dict[str, str] = {
+    "gupy": (
+        "A Gupy protege o login com Cloudflare Turnstile, que não serve o "
+        "desafio a browser automatizado: o widget não carrega, o botão de "
+        "acessar fica permanentemente desabilitado, e nem o login manual dentro "
+        "do Playwright conclui. Fazer funcionar exigiria mascarar "
+        "`navigator.webdriver` para o site não reconhecer a automação — "
+        "evasão de detecção, que este projeto não faz. A coleta continua: a API "
+        "pública de vagas não tem controle nenhum a contornar, e é dela que vem "
+        "a maior parte do valor. Candidatura na Gupy é manual, pelo link da vaga."
+    ),
 }
 
 
@@ -256,6 +305,9 @@ def obter(plataforma: str) -> Callable:
     """Applicator da plataforma. Levanta KeyError com mensagem útil se não houver."""
     chave = (plataforma or "").lower()
     if chave not in PLATAFORMAS:
+        motivo = SEM_AUTOMACAO_POR_DESIGN.get(chave)
+        if motivo:
+            raise KeyError(f"Sem automação para '{plataforma}'. {motivo}")
         raise KeyError(
             f"Sem automação para '{plataforma}'. "
             f"Disponíveis: {', '.join(sorted(PLATAFORMAS))}."

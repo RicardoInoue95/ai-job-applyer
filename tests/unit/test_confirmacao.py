@@ -166,13 +166,77 @@ def test_resultado_nunca_compartilha_lista_mutavel():
 # ── Registry ──────────────────────────────────────────────────────────────────
 
 def test_plataformas_com_automacao():
-    for p in ("greenhouse", "linkedin", "gupy"):
+    for p in ("greenhouse", "linkedin"):
         assert suportada(p)
 
 
-def test_lever_nao_e_suportada():
-    """Módulo 14 não existe. Antes caía no applicator do Greenhouse e falhava."""
-    assert not suportada("lever")
+def test_lever_e_suportada_mas_nunca_envia_sozinha():
+    """Módulo 14 existe agora, e preenche o formulário inteiro. Mas o Lever
+    carrega hCaptcha — medido no formulário real, com widget renderizado e o
+    botão de envio preso ao token —, então o applicator para no desafio e
+    devolve AGUARDANDO_VERIFICACAO. Quem conclui é `scripts/finalizar.py`.
+
+    O registro dizia que o Lever era "sem CAPTCHA". Era falso, e essa frase era
+    justamente o que o fazia parecer o melhor retorno por hora do projeto."""
+    import inspect
+
+    from jobapplier.applicators import lever
+
+    assert suportada("lever")
+    fonte = inspect.getsource(lever.apply)
+    assert "AGUARDANDO_VERIFICACAO" in fonte
+    # Nenhum caminho clica em enviar: o hCaptcha é do candidato.
+    assert ".click()" not in fonte or "sugestao.click()" in fonte
+
+
+def test_lever_registra_o_captcha_medido():
+    """Trava a correção da documentação: alguém que leia "sem CAPTCHA" tenta
+    automatizar o envio e bate no mesmo muro.
+
+    Não basta procurar a ausência de "sem captcha": o motivo CITA a frase antiga
+    para refutá-la, e isso é o certo — dizer o que se acreditava e por que estava
+    errado vale mais que apagar. O que se exige é o fato medido e o desfecho."""
+    from jobapplier import plataformas
+    from jobapplier.plataformas import Envio
+
+    lever = plataformas.obter("lever")
+    assert "hcaptcha" in lever.motivo.lower(), "o motivo tem de nomear a barreira"
+    assert lever.envio is not Envio.AUTOMATICO
+    assert "lever" not in plataformas.com_automacao()
+
+
+def test_gupy_nao_tem_automacao_por_decisao():
+    """A Gupy protege o login com Cloudflare Turnstile, que não serve o desafio a
+    browser automatizado: o widget não carrega e o botão de acessar fica
+    permanentemente desabilitado — nem o login manual dentro do Playwright
+    conclui. Fazer funcionar exigiria mascarar `navigator.webdriver`, ou seja,
+    evasão de detecção.
+
+    Ausência deliberada, não pendência. Sem este registro, a Gupy parece um
+    módulo esquecido e alguém a reimplementa contornando o controle."""
+    from jobapplier.applicators.base import SEM_AUTOMACAO_POR_DESIGN
+
+    assert not suportada("gupy")
+    assert "gupy" in SEM_AUTOMACAO_POR_DESIGN
+    assert "Turnstile" in SEM_AUTOMACAO_POR_DESIGN["gupy"]
+
+
+def test_motivo_da_ausencia_aparece_no_erro():
+    """Quem tentar usar o applicator da Gupy tem que ler o porquê, não um
+    'plataforma não disponível' genérico que convida a reimplementar."""
+    from jobapplier.applicators.base import obter
+
+    with pytest.raises(KeyError, match="Turnstile"):
+        obter("gupy")
+
+
+def test_coleta_da_gupy_continua_valendo():
+    """A decisão vale para candidatura, não para coleta: a API pública de vagas
+    não tem controle nenhum a contornar, e é dela que vem a maior parte do valor
+    — achar e ranquear a vaga, não clicar em enviar."""
+    from jobapplier.collectors.gupy import GupyCollector
+
+    assert GupyCollector.platform == "gupy"
 
 
 def test_suportada_e_case_insensitive():

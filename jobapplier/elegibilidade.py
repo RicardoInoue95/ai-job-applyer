@@ -93,6 +93,81 @@ _ACEITA_BRASIL = (
 )
 
 
+#: Unidades federativas, por extenso e por sigla. A Gupy devolve `localizacao`
+#: como "cidade, estado, país", mas o país às vezes falta — 8 das 320 vagas
+#: coletadas vinham só como "São Paulo, São Paulo". Sem reconhecer o estado,
+#: essas seriam lidas como estrangeiras e descartadas.
+_UF_BRASIL: frozenset[str] = frozenset({
+    "acre", "alagoas", "amapa", "amazonas", "bahia", "ceara", "distrito federal",
+    "espirito santo", "goias", "maranhao", "mato grosso", "mato grosso do sul",
+    "minas gerais", "para", "paraiba", "parana", "pernambuco", "piaui",
+    "rio de janeiro", "rio grande do norte", "rio grande do sul", "rondonia",
+    "roraima", "santa catarina", "sao paulo", "sergipe", "tocantins",
+    # Siglas. "pa" e "pr" também são palavras curtas, mas aqui o casamento é
+    # contra um segmento inteiro de `localizacao`, não contra texto corrido.
+    "ac", "al", "ap", "am", "ba", "ce", "df", "es", "go", "ma", "mt", "ms",
+    "mg", "pa", "pb", "pr", "pe", "pi", "rj", "rn", "rs", "ro", "rr", "sc",
+    "sp", "se", "to",
+})
+
+#: Como o país aparece quando vem preenchido.
+_NOMES_BRASIL = frozenset({"brasil", "brazil", "br"})
+
+
+def pais_de_localizacao(localizacao: str) -> str | None:
+    """Classifica o campo estruturado de local: ``"BR"``, ``"XX"`` ou ``None``.
+
+    ``None`` é indeterminado — local vazio, "Remoto", "Home office" — e não
+    descarta ninguém. ``"XX"`` é estrangeiro sem dizer qual país, que é tudo o
+    que o filtro precisa saber.
+
+    A lógica é invertida de propósito: reconhecer o que é brasileiro e tratar o
+    resto como fora. Enumerar países do mundo daria uma lista infinita e sempre
+    desatualizada, e o corpus mostra por que não vale — de 320 vagas da Gupy, as
+    estrangeiras eram Chile, México e Portugal, nenhum deles na lista de quatro
+    países que existia (US, CA, GB, BR), montada quando só havia Greenhouse.
+
+    Trabalha sobre `localizacao`, não sobre a descrição: é campo estruturado da
+    API, e "Data Engineer [remote from EU]" com local "Portugal" passava batido
+    porque nem "Portugal" nem "remote from EU" apareciam no casamento textual.
+    """
+    if not localizacao or not localizacao.strip():
+        return None
+
+    segmentos = [
+        _sem_acento(s.strip().lower())
+        for s in localizacao.split(",")
+        if s.strip()
+    ]
+    if not segmentos:
+        return None
+
+    if any(s in _NOMES_BRASIL or s in _UF_BRASIL for s in segmentos):
+        return "BR"
+
+    # Um segmento só e genérico ("Remoto", "Home office") não afirma país.
+    if len(segmentos) == 1 and segmentos[0] in _LOCAIS_GENERICOS:
+        return None
+
+    return "XX"
+
+
+#: Valores que aparecem no lugar do local sem nomear lugar nenhum.
+_LOCAIS_GENERICOS = frozenset({
+    "remoto", "remote", "home office", "homeoffice", "hibrido", "presencial",
+    "a combinar", "diversos", "varios", "nacional",
+})
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 @dataclass(frozen=True)
 class Avaliacao:
     """Decisão de elegibilidade com a evidência que a sustenta."""
@@ -313,3 +388,79 @@ def extrair_geografia(texto: str) -> dict:
         "work_authorization_required": bool(_RE_AUTORIZACAO.search(texto)),
         "sponsorship_available": sponsorship,
     }
+
+
+# ── Vaga afirmativa ───────────────────────────────────────────────────────────
+#
+# Vaga afirmativa é reservada por lei ou por política a um grupo. Candidatar-se
+# sem pertencer a ele ocupa uma posição criada para corrigir desigualdade, e é
+# descartado na primeira triagem — custa tempo dos dois lados.
+#
+# O acervo tem 136 delas: 119 para PCD, 13 para mulheres, 4 para pessoas negras.
+# Cinco chegaram vivas à fila, uma **aprovada com score 84**. O score não tem
+# como saber: ele mede aderência técnica, e a barreira aqui não é técnica.
+#
+# **A elegibilidade é um fato que só o candidato conhece, e o sistema não
+# presume nenhum lado.** Sem declaração na config, a vaga é descartada com o
+# motivo dizendo como declarar — o oposto (presumir elegível) mandaria
+# candidatura que não deveria existir, e presumir em silêncio esconderia de um
+# candidato PCD 119 vagas feitas para ele.
+
+#: Marca de que a vaga é afirmativa. Só linguagem inequívoca: "diversidade" e
+#: "inclusão" aparecem no rodapé institucional de metade dos anúncios e não
+#: reservam nada.
+_MARCA_AFIRMATIVA = (
+    "afirmativa", "afirmativo", "affirmative action", "exclusiva para",
+    "exclusivo para", "vaga destinada", "reservada para", "reservado para",
+)
+
+#: Grupo → termos no título. Um grupo por chave; a config usa estas chaves.
+PROGRAMAS_AFIRMATIVOS: dict[str, tuple[str, ...]] = {
+    "pcd": ("pcd", "deficien", "com deficiencia", "neurodiver"),
+    "mulheres": ("mulher", "women", "feminin"),
+    "pessoas_negras": ("negra", "negro", "pretas", "pretos", "black", "racial"),
+    "lgbtqia": ("lgbt", "trans ", "nao binari"),
+    "indigenas": ("indigena",),
+    "50_mais": ("50+", "maturidade", "melhor idade"),
+    "refugiados": ("refugiad",),
+}
+
+
+def programa_afirmativo(titulo: str, descricao: str = "") -> str | None:
+    """Grupo a que a vaga é reservada, `"indeterminado"`, ou None se não é.
+
+    Lê sobretudo o título: é onde a reserva é anunciada, e a descrição costuma
+    trazer texto institucional sobre diversidade que não reserva nada. A
+    descrição entra só para identificar o grupo quando o título diz "afirmativa"
+    sem dizer para quem.
+    """
+    # `_sem_acento` preserva a caixa, e as listas abaixo são minúsculas:
+    # sem o `.lower()` aqui, "Afirmativa PCD" e "Affirmative Action" não
+    # casavam — três dos quatro títulos reais do acervo passavam batido.
+    t = _sem_acento(titulo or "").lower()
+    if not any(m in t for m in _MARCA_AFIRMATIVA):
+        return None
+    for grupo, termos in PROGRAMAS_AFIRMATIVOS.items():
+        if any(x in t for x in termos):
+            return grupo
+    d = _sem_acento(descricao or "").lower()[:1500]
+    for grupo, termos in PROGRAMAS_AFIRMATIVOS.items():
+        if any(x in d for x in termos):
+            return grupo
+    return "indeterminado"
+
+
+def elegivel_ao_programa(grupo: str | None, perfil: dict | None) -> bool:
+    """O candidato declarou pertencer a este grupo?
+
+    Ausência de declaração é "não", nunca "talvez": a vaga é reservada, e quem
+    não declarou não pode ocupá-la. `indeterminado` também é "não" — sem saber a
+    quem a vaga se destina, não há como afirmar elegibilidade.
+    """
+    if grupo is None:
+        return True
+    declarados = {
+        str(g).strip().lower()
+        for g in ((perfil or {}).get("programas_afirmativos") or [])
+    }
+    return grupo in declarados

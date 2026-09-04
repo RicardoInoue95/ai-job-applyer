@@ -183,3 +183,108 @@ class CacheGemini(Base):
     resposta: Mapped[str] = mapped_column(Text)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
     expira_em: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class Evento(Base):
+    """O que aconteceu com uma candidatura depois de enviada.
+
+    A tabela que faltava para o funil não morrer em `candidatada`. Sem ela, o
+    corte de score nunca foi validado contra realidade: tudo o que se ajustou no
+    projeto foi medido contra métrica interna — preenchimento, ATS, tamanho da
+    fila —, nunca contra "ele foi chamado?".
+
+    Um registro por (vaga, tipo): a empresa manda várias vezes o mesmo aviso, e
+    contar duplicata inflaria justamente o número que a tabela existe para tornar
+    confiável. Reagendamento de entrevista atualiza a linha, não cria outra.
+    """
+
+    __tablename__ = "eventos"
+    __table_args__ = (
+        UniqueConstraint("vaga_id", "tipo", name="uq_eventos_vaga_tipo"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vaga_id: Mapped[int] = mapped_column(Integer, index=True)
+    #: `desfecho.Desfecho`: recebida | resposta | entrevista | oferta | recusa.
+    tipo: Mapped[str] = mapped_column(String(30), index=True)
+    #: Como o sistema soube: 'email' (lido da caixa) ou 'manual' (você marcou).
+    fonte: Mapped[str] = mapped_column(String(20), default="email")
+    #: Assunto do e-mail que gerou o registro. Sem corpo e sem remetente: é o
+    #: mínimo para você reconhecer o evento, e o resto é PII que não precisa
+    #: viver no banco (invariante 11).
+    referencia: Mapped[str | None] = mapped_column(String(300))
+    #: Quando o evento aconteceu, não quando foi lido — a diferença importa para
+    #: medir tempo de resposta por plataforma.
+    ocorrido_em: Mapped[datetime | None] = mapped_column(DateTime)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
+
+
+class RespostaAprendida(Base):
+    """O que você respondeu uma vez e o sistema repete.
+
+    Sem isto, a etapa de perguntas da empresa na Gupy pede nome da mãe em cada
+    uma das 230 vagas da fila. A regra de escopo e a de neutralização de empresa
+    vivem em `jobapplier/aprendizado.py`, com teste; aqui é só o armazenamento.
+
+    A unicidade é (chave, escopo, empresa) e não só `chave`: a mesma pergunta
+    aberta tem uma resposta por empresa, e sem a empresa na constraint a segunda
+    empresa sobrescreveria a primeira.
+    """
+
+    __tablename__ = "respostas_aprendidas"
+    __table_args__ = (
+        UniqueConstraint("chave", "escopo", "empresa",
+                         name="uq_respostas_chave_escopo_empresa"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    #: Pergunta normalizada — ver `aprendizado.normalizar`. Casamento é exato
+    #: sobre esta forma; aproximado responderia uma pergunta com outra.
+    chave: Mapped[str] = mapped_column(String(400), index=True)
+    #: 'global' (resposta é sobre você) ou 'empresa' (pergunta aberta).
+    escopo: Mapped[str] = mapped_column(String(10), default="global")
+    #: Vazio quando o escopo é global.
+    empresa: Mapped[str] = mapped_column(String(200), default="")
+    #: O enunciado como apareceu, para você reconhecer na tela de revisão.
+    pergunta: Mapped[str] = mapped_column(Text)
+    resposta: Mapped[str] = mapped_column(Text)
+    #: `respostas.Classe` — governa o escopo e aparece na revisão.
+    classe: Mapped[str] = mapped_column(String(20), default="aberta")
+    vezes_usada: Mapped[int] = mapped_column(Integer, default=0)
+    usada_em: Mapped[datetime | None] = mapped_column(DateTime)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)
+
+
+class VinculoCandidatura(Base):
+    """Qual vaga é a candidatura que está aberta no navegador.
+
+    A URL do formulário da Gupy é `/candidates/applications/<id>/steps/<id>` e
+    não carrega o `jobId` em lugar nenhum — nem no DOM, nem em `__NEXT_DATA__`,
+    nem num link. Medido na página real. Sem esta tabela, voltar ao formulário
+    por um link de e-mail deixa o sistema sem saber de que vaga se trata, e a
+    extensão não tem o que preencher.
+
+    O vínculo é gravado uma vez, no primeiro encontro — quando ainda há
+    `referrer` ou memória da aba — e vale para sempre depois.
+
+    Não deduzir por título: o PagBank tem DUAS vagas "Analista de Dados Pl.",
+    repostagens com ids diferentes. Deduzir escolheria uma no cara ou coroa e
+    preencheria o formulário de uma com as respostas da outra.
+    """
+
+    __tablename__ = "vinculos_candidatura"
+    __table_args__ = (
+        UniqueConstraint("plataforma", "referencia",
+                         name="uq_vinculos_plataforma_referencia"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plataforma: Mapped[str] = mapped_column(String(30), index=True)
+    #: Id da candidatura no site — `749637585` na Gupy.
+    referencia: Mapped[str] = mapped_column(String(100), index=True)
+    vaga_id: Mapped[int] = mapped_column(Integer, index=True)
+    #: 'referrer' | 'aba' | 'voce' — de onde veio a certeza. Um vínculo que veio
+    #: de você é o único que nunca deve ser sobrescrito por inferência.
+    origem: Mapped[str] = mapped_column(String(20), default="referrer")
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=agora_utc)

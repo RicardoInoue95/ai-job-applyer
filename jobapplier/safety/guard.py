@@ -221,7 +221,8 @@ LEASE_MINUTOS = 30
 MAX_TENTATIVAS_VAGA = 3
 
 
-def adquirir_lease(vaga_id: int, dono: str, minutos: int = LEASE_MINUTOS) -> bool:
+def adquirir_lease(vaga_id: int, dono: str, minutos: int = LEASE_MINUTOS,
+                   conta_tentativa: bool = True) -> bool:
     """Toma o lease da vaga e marca 'em_andamento', atomicamente.
 
     Um único UPDATE condicional faz a transição de estado e o bloqueio: se outra
@@ -230,9 +231,25 @@ def adquirir_lease(vaga_id: int, dono: str, minutos: int = LEASE_MINUTOS) -> boo
     sessões separadas, e um crash no meio deixava estado inconsistente.
 
     Também devolve False quando a vaga passou de MAX_TENTATIVAS_VAGA.
+
+    **`conta_tentativa=False` para o modo sombra.** O teto existe para parar de
+    martelar uma plataforma que falha; simulação nunca chega na plataforma.
+    Contá-la queimava a cota sem tentar nada: com o agendador rodando a cada
+    15 min, três ciclos de sombra bastavam para inutilizar a vaga **para
+    sempre** — e foi o que aconteceu com as duas de maior score da fila, que
+    nunca tocaram o Greenhouse. Mesma família do bug em que o modo sombra
+    gravava `simulada` e a constraint bloqueava o envio real.
     """
     agora = agora_utc()
     expira = agora + timedelta(minutes=minutos)
+    novos = {
+        "status": "em_andamento",
+        "bloqueado_em": agora,
+        "bloqueado_por": dono,
+        "lease_expira_em": expira,
+    }
+    if conta_tentativa:
+        novos["tentativas"] = Vaga.tentativas + 1
     try:
         with get_session() as session:
             casadas = (
@@ -245,16 +262,7 @@ def adquirir_lease(vaga_id: int, dono: str, minutos: int = LEASE_MINUTOS) -> boo
                         Vaga.lease_expira_em < agora,
                     ),
                 )
-                .update(
-                    {
-                        "status": "em_andamento",
-                        "bloqueado_em": agora,
-                        "bloqueado_por": dono,
-                        "lease_expira_em": expira,
-                        "tentativas": Vaga.tentativas + 1,
-                    },
-                    synchronize_session=False,
-                )
+                .update(novos, synchronize_session=False)
             )
         if not casadas:
             logger.info(

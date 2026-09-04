@@ -75,9 +75,19 @@ def main():
             env=env,
             cwd=RAIZ,
         ),
+        # A API da extensão sobe junto. Ficava de fora, e o aviso da extensão
+        # mandava "rode python run.py" quando ela não respondia — conselho que
+        # não resolvia, porque rodar não a subia. Só escuta em 127.0.0.1.
+        subprocess.Popen(
+            [sys.executable, "-c",
+             "from jobapplier.api import servir; servir()"],
+            env=env,
+            cwd=RAIZ,
+        ),
     ]
 
     print("App disponível em: http://localhost:8501")
+    print("API da extensão em: http://127.0.0.1:8787")
     print("Pressione Ctrl+C para encerrar.\n")
 
     try:

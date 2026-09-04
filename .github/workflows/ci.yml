@@ -40,11 +40,12 @@ jobs:
       - name: Instalar Chromium do Playwright
         run: python -m playwright install --with-deps chromium
 
-      # Sem serviço de Postgres: tests/integration pula sozinho quando o banco
-      # não responde. Se algum dia esses testes virarem obrigatórios, adicione
-      # um bloco services: postgres aqui e rode com -m db.
+      # Sem serviço de Postgres: os testes marcados 'db' ficam de fora aqui.
+      # Se algum dia virarem obrigatórios, adicione um bloco services: postgres
+      # e remova o 'not db'. Testes que dependem de arquivos pessoais em data/
+      # pulam sozinhos quando os arquivos não existem.
       - name: Testes unitários e e2e
-        run: python -m pytest -v
+        run: python -m pytest -v -m "not live and not db"
 
       - name: Verificar que nada de 'data/' vazou para o versionamento
         run: |

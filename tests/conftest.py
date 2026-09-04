@@ -19,7 +19,23 @@ define explicitamente com monkeypatch.
 """
 import pytest
 
+from jobapplier import paths
 from jobapplier.config import secrets
+
+
+def pytest_collection_modifyitems(config, items):
+    """Testes marcados `pessoal` comparam o sistema com a configuração real do
+    candidato (`data/config.json`, `data/resume.json`): cargo alvo, pretensão,
+    currículo mestre. Esses arquivos só existem na máquina dele e nunca são
+    versionados. Fora dela (CI, clone limpo) os testes pulam em vez de falhar
+    por dado ausente. Localmente continuam rodando e continuam sendo a trava."""
+    if paths.CONFIG_JSON.exists() and paths.RESUME_JSON.exists():
+        return
+    pular = pytest.mark.skip(
+        reason="requer data/config.json e data/resume.json do candidato")
+    for item in items:
+        if "pessoal" in item.keywords:
+            item.add_marker(pular)
 
 
 @pytest.fixture(autouse=True, scope="session")

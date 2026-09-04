@@ -38,13 +38,19 @@ VAGA: tuple[Status, ...] = (
     Status("filtrada_4a", "Filtrada (4A)", "Descartada pelo filtro de texto, sem custo",
            "descartada"),
     Status("filtrada_4b", "Filtrada (4B)", "Descartada após a normalização", "descartada"),
-    Status("rejeitada", "Rejeitada", "Score abaixo do mínimo", "descartada"),
+    # Legado: score não rejeita mais (viram 'pendente'). Fica para linhas antigas.
+    Status("rejeitada", "Rejeitada (legado)", "Descartada por score, antes da política atual",
+           "descartada"),
     Status("inelegivel", "Inelegível", "Exige autorização de trabalho que você não tem",
            "descartada", "aviso"),
     Status("encerrada", "Encerrada", "A vaga saiu do ar", "descartada"),
     # Aguardando você
-    Status("pendente", "Aguardando aprovação",
-           "Score intermediário: você decide se vale candidatar", "acao", "aviso"),
+    # Grupo próprio: possibilidade não é pendência. Contá-la como "esperando
+    # por você" inflou o painel de 344 para 455 — lista de afazeres com 195
+    # itens de score baixo é o maçante que a Finalidade proíbe.
+    Status("pendente", "Possibilidade",
+           "Abaixo do corte de aprovação — acessível baixando o filtro da fila",
+           "possibilidade"),
     Status("pronta_para_revisao", "Pronta para revisão",
            "Modo sombra: documentos preparados, envio não executado", "acao", "aviso"),
     Status("aguardando_revisao", "Confirmação inconclusiva",
@@ -55,6 +61,15 @@ VAGA: tuple[Status, ...] = (
            "acao", "aviso"),
     Status("aguardando_configuracao", "Falta configuração",
            "Um dado seu está ausente (ex.: CPF)", "acao", "aviso"),
+    Status("pronta_envio_manual", "Pronta para você enviar",
+           "Currículo e carta prontos; a plataforma não permite envio automático",
+           "acao", "aviso"),
+    Status("adiada", "Decidir depois",
+           "Você viu e preferiu pensar — sai da fila principal, não se perde",
+           "acao"),
+    Status("aberta", "Aberta por você",
+           "Você abriu o link da vaga. Não sabemos se chegou a enviar",
+           "acao", "aviso"),
     # Aguardando o sistema
     Status("aprovada", "Aprovada", "Na fila para candidatura", "processando"),
     Status("aguardando_suporte", "Sem suporte ainda",
@@ -68,6 +83,11 @@ VAGA: tuple[Status, ...] = (
     # Desfechos
     Status("candidatada", "Candidatada", "Envio confirmado pela plataforma",
            "concluida", "bom"),
+    Status("enviada_manual", "Enviada por você",
+           "Você aplicou pelo site, com o dossiê que o sistema preparou",
+           "concluida", "bom"),
+    Status("descartada_por_voce", "Descartada por você",
+           "Você viu o cartão e decidiu que não vale", "descartada"),
     Status("erro", "Erro", "Falha técnica — pode ser retentada", "problema", "ruim"),
 )
 
@@ -80,6 +100,12 @@ CANDIDATURA: tuple[Status, ...] = (
            "Submetida sem prova, ou com pergunta em branco", "acao", "aviso"),
     Status("falha_automacao", "Falha técnica",
            "Nada foi submetido", "problema", "ruim"),
+    # Grupo 'acao' e não 'problema': o trabalho caro já foi feito, e o que falta
+    # é você digitar um código. Contá-la como falha esconderia a única categoria
+    # que uma sessão assistida resolve.
+    Status("aguardando_verificacao", "Aguarda seu código",
+           "Formulário pronto; a plataforma pede verificação humana", "acao",
+           "aviso"),
     Status("simulada", "Simulada (modo sombra)",
            "Preparada e deliberadamente não enviada", "processando"),
     # Legados: só leitura de linhas antigas do banco.
@@ -107,6 +133,22 @@ def de_candidatura(codigo: str) -> Status:
     return _POR_CODIGO_CAND.get(
         codigo, Status(codigo, codigo or "?", "Status não catalogado", "processando")
     )
+
+
+def e_legado(codigo: str) -> bool:
+    """O status é do vocabulário antigo?
+
+    Serve para **separar** relatório, nunca para converter. Os dois vocabulários
+    foram medidos com réguas diferentes: `enviada` do acervo antigo significava
+    "o botão foi clicado", e `enviada_confirmada` exige prova na página. Somar os
+    dois produz uma taxa de sucesso que não descreve nem um período nem o outro.
+
+    A fonte é `applicators.base.STATUS_LEGADOS`, que já existia para leitura de
+    linha antiga — repetir a lista aqui criaria a segunda cópia de sempre.
+    """
+    from jobapplier.applicators.base import STATUS_LEGADOS
+
+    return (codigo or "") in STATUS_LEGADOS
 
 
 def codigos_vaga(*grupos: str) -> list[str]:

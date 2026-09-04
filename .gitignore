@@ -60,3 +60,15 @@ test-results/
 # ── Logs ─────────────────────────────────────────────────────────────────────
 logs/
 *.log
+
+# ── Arquivos pessoais do candidato (ficam só na máquina local) ────────────────
+# Fatos de carreira, protocolo de candidatura, currículos e os testes que só
+# fazem sentido com esses arquivos e com data/ presentes.
+docs/prompt_carreira.md
+docs/prompt_curriculos.md
+docs/prompt_candidaturas.md
+docs/plataformas/
+docs/_substituidos/
+docs/*.docx
+tests/unit/test_prompts.py
+docs/TUTORIAL_LINKEDIN.md

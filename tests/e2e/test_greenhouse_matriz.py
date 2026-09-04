@@ -89,6 +89,13 @@ def _avaliar(cenario):
 
 IDS = [c.id for c in TODOS]
 
+#: A pretensão salarial vem de data/config.json do candidato. Sem o arquivo, só o
+#: cenário 10_pretensao_salarial pula (marcador pessoal, ver tests/conftest.py).
+TODOS_MARCADOS = [
+    pytest.param(c, marks=pytest.mark.pessoal) if c.id == "10_pretensao_salarial" else c
+    for c in TODOS
+]
+
 
 # ── A matriz ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +105,7 @@ def test_status_de_descoberta(cenario, api):
     assert _avaliar(cenario)["discovery_status"] == cenario.discovery_status, cenario.descricao
 
 
-@pytest.mark.parametrize("cenario", TODOS, ids=IDS)
+@pytest.mark.parametrize("cenario", TODOS_MARCADOS, ids=IDS)
 def test_prontidao(cenario, api):
     api(cenario)
     assert _avaliar(cenario)["application_readiness"] == cenario.readiness, cenario.descricao
@@ -121,7 +128,7 @@ def test_confianca_so_existe_com_descoberta_bem_sucedida(cenario, api):
         assert 0.0 <= confianca <= 1.0
 
 
-@pytest.mark.parametrize("cenario", TODOS, ids=IDS)
+@pytest.mark.parametrize("cenario", TODOS_MARCADOS, ids=IDS)
 def test_motivo_do_bloqueio(cenario, api):
     api(cenario)
     assert _avaliar(cenario)["blocking_reason"] == cenario.blocking_reason, cenario.descricao
@@ -158,6 +165,7 @@ def test_perguntas_manuais_sao_listadas(cenario, api):
 
 # ── Invariantes que atravessam a matriz ───────────────────────────────────────
 
+@pytest.mark.pessoal
 def test_todo_cenario_suportado_fica_pronto(api):
     for cenario in (c for c in TODOS if c.grupo == "suportado"):
         api(cenario)

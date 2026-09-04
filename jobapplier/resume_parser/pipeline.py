@@ -102,6 +102,16 @@ class ResumePipeline:
     def run(
         self, file_path: Path, output_dir: Path
     ) -> tuple[ResumeJSON, dict[str, Path]]:
-        resume = self.parse_file(file_path)
-        profiles = self.generate_base_profiles(resume, output_dir)
-        return resume, profiles
+        """Extrai o currículo mestre do arquivo enviado. **Não** gera perfis.
+
+        Gerava: quatro chamadas de LLM reescreviam o currículo inteiro em quatro
+        variantes, cada uma um arquivo completo em `data/resumes/`. Cada arquivo
+        virava uma segunda fonte de verdade sobre empresa, data e formação, e as
+        quatro apodreceram assim que o mestre foi editado (invariante 11).
+
+        Hoje o perfil é derivado do mestre em tempo de geração por
+        `jobapplier.perfis`, sem chamada de LLM e sem arquivo intermediário.
+        `generate_base_profiles` segue disponível para inspeção manual, mas nada
+        no fluxo a chama — o retorno vazio aqui é a resposta correta.
+        """
+        return self.parse_file(file_path), {}

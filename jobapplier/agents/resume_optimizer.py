@@ -140,6 +140,13 @@ def optimize(base_profile: dict, vaga, client: "LLMClient | None" = None) -> dic
     resume_techs_orig = base_profile.get("tecnologias", [])
     ats_antes, matched_antes, _ = _calc_ats_score(resume_techs_orig, job_techs)
 
+    # O idioma da vaga entra no prompt: currículo em português para vaga em
+    # inglês perde no parsing do ATS, que casa termo literal, e não deixa erro
+    # em lugar nenhum — o PDF sai bonito e os termos não batem.
+    from jobapplier import idioma as mod_idioma
+
+    lingua = mod_idioma.da_vaga(vaga)
+
     vaga_info = {
         "titulo": getattr(vaga, "titulo", ""),
         "empresa": getattr(vaga, "empresa", ""),
@@ -153,11 +160,20 @@ def optimize(base_profile: dict, vaga, client: "LLMClient | None" = None) -> dic
     prompt = OPTIMIZE_PROMPT.format(
         vaga_json=json.dumps(vaga_info, ensure_ascii=False, indent=2),
         resume_json=json.dumps(base_profile, ensure_ascii=False, indent=2),
-    )
+    ) + mod_idioma.instrucao_para(lingua)
 
     if client is None:
         logger.info("Otimização sem LLM: reordenando tecnologias, sem reescrever texto.")
         otimizado = otimizar_sem_llm(base_profile, vaga)
+        # O idioma do currículo é lido do próprio texto, não presumido: desde que
+        # `perfis.montar` escolhe o mestre pelo idioma da vaga, presumir
+        # português avisaria descompasso justamente quando não há nenhum. Aqui o
+        # aviso sobra só para o caso real — o mestre daquele idioma não carregou.
+        lingua_curriculo = mod_idioma.detectar(
+            base_profile.get("resumo_profissional") or "")
+        aviso = mod_idioma.descompasso(lingua, lingua_curriculo)
+        if aviso:
+            logger.warning("Vaga id=%s: %s", getattr(vaga, "id", "?"), aviso)
     else:
         try:
             otimizado = client.generate_json(prompt, temperature=0.2)
@@ -169,6 +185,15 @@ def optimize(base_profile: dict, vaga, client: "LLMClient | None" = None) -> dic
             otimizado = base_profile
 
     otimizado = _normalizar_saida(otimizado)
+
+    # Depois da normalização e fora dos dois ramos: vale com e sem LLM, e o
+    # modelo não opina sobre isto. A lista sai de `EQUIVALENCIAS`, que é curada
+    # — deixar o modelo decidir o que é equivalente abriria a porta para ele
+    # "equivaler" qualquer coisa que a vaga pedisse.
+    from jobapplier import vocabulario as vocab
+
+    otimizado["equivalencias"] = vocab.equivalencias_uteis(
+        job_techs, otimizado.get("tecnologias") or [])
 
     # ATS score após otimização
     resume_techs_opt = otimizado.get("tecnologias", [])

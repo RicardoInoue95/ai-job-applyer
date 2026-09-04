@@ -154,12 +154,18 @@ INTERVENCAO = [
         min_obrigatorias_desconhecidas=1,
     ),
     Cenario(
-        "10_pretensao_salarial", "intervencao",
-        "Pretensão salarial: não há dado configurado para responder",
+        # Era "não há dado configurado para responder", e virou o contrário: a
+        # faixa de `pretensao` no config responde. O cenário deixou de descrever
+        # a realidade quando o `_auto_answer` passou a consultar `salario.py` em
+        # vez de só `dados_pessoais.salario`, que está vazio.
+        #
+        # Pretensão é a pergunta obrigatória que mais bloqueava envio no acervo —
+        # 17 ocorrências —, então o valor deste cenário agora é garantir que ela
+        # NÃO volte a bloquear. O caminho de bloqueio segue coberto pelo 09.
+        "10_pretensao_salarial", "suportado",
+        "Pretensão salarial respondida pela faixa configurada em `pretensao`",
         corpo=_job([*PADRAO, pergunta("Qual sua pretensão salarial?", "question_31")]),
-        readiness="manual_review",
-        blocking_reason="pergunta_obrigatoria_desconhecida",
-        min_obrigatorias_desconhecidas=1,
+        readiness="pronta",
     ),
     Cenario(
         "11_cpf_ausente", "intervencao",

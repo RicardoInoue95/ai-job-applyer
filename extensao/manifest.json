@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "AI Job Applier — assistente de preenchimento",
+  "version": "0.1.0",
+  "description": "Preenche formulário de candidatura na sessão que você já abriu. Não envia nada.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "https://*.gupy.io/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://boards.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://*.inhire.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.gupy.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://*.inhire.app/*"
+      ],
+      "js": [
+        "campos.js",
+        "conteudo.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "fundo.js"
+  }
+}

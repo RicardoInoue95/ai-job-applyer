@@ -33,6 +33,31 @@ Escreva uma carta de apresentação profissional em português com:
 Retorne SOMENTE o texto da carta, sem assunto, sem cabeçalho, sem assinatura."""
 
 
+#: O texto da carta sem LLM, por idioma. Fica numa tabela em vez de espalhado
+#: em f-strings porque acrescentar um idioma tem de ser acrescentar uma chave,
+#: não caçar frase solta no meio da função.
+_FRASES = {
+    "pt": {
+        "saudacao": "Prezada equipe de {empresa},",
+        "abertura": "Escrevo para me candidatar à vaga de {titulo}.",
+        "cargo_atual": "Atuo hoje como {cargo}.",
+        "tecnologias": "Tenho experiência prática com as tecnologias centrais "
+                       "da vaga: ",
+        "fecho": "Fico à disposição para conversar sobre como posso contribuir.",
+        "assinatura": "Atenciosamente,",
+    },
+    "en": {
+        "saudacao": "Dear {empresa} team,",
+        "abertura": "I am writing to apply for the {titulo} position.",
+        "cargo_atual": "I currently work as {cargo}.",
+        "tecnologias": "I have hands-on experience with the core technologies "
+                       "for this role: ",
+        "fecho": "I would be glad to discuss how I can contribute.",
+        "assinatura": "Best regards,",
+    },
+}
+
+
 def montar_sem_llm(resume_json: dict, vaga) -> str:
     """Cover letter montada a partir de fatos do currículo, sem modelo.
 
@@ -43,35 +68,45 @@ def montar_sem_llm(resume_json: dict, vaga) -> str:
 
     Existe porque muitos formulários têm campo obrigatório de carta.
     """
+    from jobapplier import empresas
     from jobapplier import vocabulario as vocab
 
     normalizado = getattr(vaga, "normalizado_json", None) or {}
     experiencias = resume_json.get("experiencias") or []
     cargo_atual = experiencias[0].get("cargo", "") if experiencias else ""
     nome = resume_json.get("nome", "")
-    empresa = getattr(vaga, "empresa", "") or "a empresa"
+    # O slug do board não é nome: sem isto a carta abre com "Prezada equipe de
+    # c6bank", que lê como formulário automático.
+    empresa = empresas.nome_exibicao(getattr(vaga, "empresa", "")) or "a empresa"
     titulo = normalizado.get("cargo") or getattr(vaga, "titulo", "") or "a vaga"
 
     tec_vaga = normalizado.get("tecnologias") or []
     tec_curriculo = {vocab.canonizar(t) for t in (resume_json.get("tecnologias") or [])}
     em_comum = [t for t in tec_vaga if t in tec_curriculo]
 
-    linhas = [f"Prezada equipe de {empresa},", ""]
-    abertura = f"Escrevo para me candidatar à vaga de {titulo}."
+    # O idioma sai do próprio currículo recebido, não da vaga: quem escolheu o
+    # mestre pt ou en foi `perfis.montar`, e a carta tem de acompanhar o
+    # documento que vai junto dela. Saía sempre em português — currículo em
+    # inglês com carta em português no mesmo envelope, em metade da fila.
+    from jobapplier import idioma as mod_idioma
+
+    lingua = mod_idioma.detectar(resume_json.get("resumo_profissional") or "")
+    t = _FRASES.get(lingua, _FRASES["pt"])
+
+    linhas = [t["saudacao"].format(empresa=empresa), ""]
+    abertura = t["abertura"].format(titulo=titulo)
     if cargo_atual:
-        abertura += f" Atuo hoje como {cargo_atual}."
+        abertura += " " + t["cargo_atual"].format(cargo=cargo_atual)
     linhas.append(abertura)
 
     if em_comum:
-        linhas += ["", "Tenho experiência prática com as tecnologias centrais da vaga: "
-                   + ", ".join(em_comum[:8]) + "."]
+        linhas += ["", t["tecnologias"] + ", ".join(em_comum[:8]) + "."]
 
     conquistas = [c for e in experiencias for c in (e.get("conquistas") or [])]
     if conquistas:
         linhas += ["", conquistas[0].rstrip(".") + "."]
 
-    linhas += ["", "Fico à disposição para conversar sobre como posso contribuir.",
-               "", "Atenciosamente,", nome]
+    linhas += ["", t["fecho"], "", t["assinatura"], nome]
     return "\n".join(linhas)
 
 
@@ -87,16 +122,22 @@ def generate(resume_json: dict, vaga, client: "LLMClient | None" = None) -> str 
     techs_candidato = ", ".join(resume_json.get("tecnologias", [])[:12])
     techs_vaga = ", ".join(normalizado.get("tecnologias", [])[:10])
 
+    from jobapplier import empresas
+    from jobapplier import idioma as mod_idioma
+
     prompt = COVER_LETTER_PROMPT.format(
         nome=resume_json.get("nome", ""),
         cargo_atual=cargo_atual,
         techs=techs_candidato,
-        empresa=getattr(vaga, "empresa", ""),
+        empresa=empresas.nome_exibicao(getattr(vaga, "empresa", "")),
         titulo=getattr(vaga, "titulo", ""),
         senioridade=normalizado.get("senioridade", "Pleno"),
         techs_vaga=techs_vaga,
         setor=normalizado.get("setor_empresa", "Tecnologia"),
-    )
+    # Mesmo idioma do currículo que vai junto. Com modelo a instrução resolve;
+    # sem modelo, quem resolve é a tabela `_FRASES`.
+    ) + mod_idioma.instrucao_para(mod_idioma.detectar(
+        resume_json.get("resumo_profissional") or ""))
 
     try:
         texto = client.generate(prompt, temperature=0.4)

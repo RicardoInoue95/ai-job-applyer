@@ -78,7 +78,29 @@ def apply(vaga, config: dict) -> tuple[bool, str]:
     # Só linguagem inequívoca descarta aqui. Menção a "United States", cidade
     # americana ou moeda em dólar não bastam: isolados, produziriam falso
     # negativo. O que é ambíguo segue para o 4B.
-    from jobapplier.elegibilidade import avaliar_texto
+    from jobapplier.elegibilidade import (
+        avaliar_texto,
+        elegivel_ao_programa,
+        programa_afirmativo,
+    )
+
+    # Vaga afirmativa é reservada a um grupo, e candidatar-se sem pertencer a ele
+    # ocupa uma posição criada para corrigir desigualdade. O score não pega isso:
+    # mede aderência técnica, e a barreira aqui não é técnica — uma "Data
+    # Engineer Senior, vaga afirmativa para mulheres" chegou a `aprovada` com 84.
+    #
+    # A elegibilidade é um fato que só o candidato conhece. Sem declaração em
+    # `dados_pessoais.programas_afirmativos`, descarta com o motivo dizendo como
+    # declarar: presumir elegível mandaria candidatura que não deveria existir, e
+    # presumir inelegível em silêncio esconderia de um candidato PCD as 119 vagas
+    # do acervo feitas para ele.
+    grupo = programa_afirmativo(titulo, descricao)
+    if grupo and not elegivel_ao_programa(grupo, config.get("dados_pessoais")):
+        return False, (
+            f"vaga afirmativa ({grupo}) e você não declarou pertencer a esse "
+            f"grupo — se pertence, adicione em dados_pessoais."
+            f"programas_afirmativos"
+        )
 
     avaliacao = avaliar_texto(descricao, config.get("dados_pessoais"))
     if avaliacao.descarta:

@@ -27,28 +27,128 @@ GRAY3 = "#999999"
 BGROW = "#F4F7FB"
 WHITE = "#FFFFFF"
 
+# ── Idioma do documento ───────────────────────────────────────────────────────
+# Metade da fila está em inglês, e o currículo em inglês saía com "RESUMO
+# PROFISSIONAL" e "Presente" no cabeçalho das seções: conteúdo traduzido dentro
+# de um documento em português. Para o recrutador isso lê como descuido, e para
+# o ATS os rótulos de seção são justamente as âncoras de parsing.
+_ROTULOS = {
+    "pt": {
+        "resumo": "Resumo Profissional", "experiencia": "Experiência Profissional",
+        "competencias": "Competências Técnicas", "formacao": "Formação Acadêmica",
+        "certificacoes": "Certificações", "idiomas": "Idiomas",
+        "presente": "Presente", "curriculo": "Currículo",
+    },
+    "en": {
+        "resumo": "Professional Summary", "experiencia": "Professional Experience",
+        "competencias": "Technical Skills", "formacao": "Education",
+        "certificacoes": "Certifications", "idiomas": "Languages",
+        "presente": "Present", "curriculo": "Resume",
+    },
+}
+
 # ── Agrupamento de tecnologias ────────────────────────────────────────────────
-# Keywords sem ambiguidade — sem letras soltas como "r"
+# Keywords sem ambiguidade — sem letras soltas como "r". As keywords são as
+# mesmas nos dois idiomas: são nome de produto, e nome de produto não traduz.
+# Só o rótulo da categoria muda, por isso a chave é um slug e não o texto.
 _TECH_GROUPS = [
-    ("Cloud & Big Data",   ["snowflake", "azure", "databricks", "bigquery", "redshift",
-                             "synapse", "gcp", "aws", "emr"]),
-    ("ETL & Pipelines",    ["etl", "elt", "azure data factory", "adf", "airbyte",
-                             "fivetran", "glue", "nifi", "informatica", "pentaho"]),
-    ("Linguagens",         ["python", "sql", "scala", "pyspark", "spark", "pandas",
-                             "numpy", "java", "javascript", "typescript"]),
-    ("Modelagem & Dados",  ["modelagem", "dbt", "data vault", "star schema", "kimball",
-                             "dimensional", "lakehouse", "data mesh"]),
-    ("Visualização & BI",  ["power bi", "tableau", "looker", "metabase", "qlik",
-                             "data studio", "superset", "grafana"]),
-    ("DevOps & Infra",     ["git", "github", "gitlab", "terraform", "iac", "docker",
-                             "kubernetes", "jenkins", "azure devops", "linux",
-                             "ci/cd", "helm", "ansible"]),
-    ("Segurança & Redes",  ["sentinel", "siem", "wireshark", "owasp", "sonarqube",
-                             "sonar qube", "pentest", "vnet", "private endpoint",
-                             "firewall", "ids", "ips", "nist", "anpd"]),
-    ("APIs & Integração",  ["api", "rest", "soap", "graphql", "webhook", "kafka",
-                             "rabbitmq", "event hub"]),
+    ("cloud",      ["snowflake", "azure", "databricks", "bigquery", "redshift",
+                    "synapse", "gcp", "aws", "emr"]),
+    # `airflow`, `dagster`, `prefect` e `ssis` entraram junto com a linha de
+    # equivalências: são orquestradores que a vaga pede e o candidato cobre com
+    # Azure Data Factory. Sem a keyword eles não caíam em categoria nenhuma e
+    # sumiam do PDF em silêncio — Airflow é a segunda ponte mais frequente do
+    # acervo, 82 vagas.
+    ("etl",        ["etl", "elt", "azure data factory", "adf", "airbyte",
+                    "fivetran", "glue", "nifi", "informatica", "pentaho",
+                    "airflow", "dagster", "prefect", "ssis"]),
+    ("linguagens", ["python", "sql", "scala", "pyspark", "spark", "pandas",
+                    "numpy", "java", "javascript", "typescript", "oracle"]),
+    ("modelagem",  ["modelagem", "modeling", "dbt", "data vault", "star schema",
+                    "kimball", "dimensional", "lakehouse", "data mesh"]),
+    ("bi",         ["power bi", "tableau", "looker", "metabase", "qlik",
+                    "data studio", "superset", "grafana"]),
+    ("devops",     ["git", "github", "gitlab", "terraform", "iac", "docker",
+                    "kubernetes", "jenkins", "azure devops", "linux",
+                    "ci/cd", "helm", "ansible", "cloudformation"]),
+    ("seguranca",  ["sentinel", "siem", "wireshark", "owasp", "sonarqube",
+                    "sonar qube", "pentest", "vnet", "private endpoint",
+                    "key vault", "firewall", "ids", "ips", "nist", "anpd"]),
+    ("apis",       ["api", "rest", "soap", "graphql", "webhook", "kafka",
+                    "rabbitmq", "event hub", "kinesis", "pub/sub"]),
 ]
+
+_ROTULOS_TEC = {
+    "cloud":      {"pt": "Cloud & Big Data",   "en": "Cloud & Big Data"},
+    "etl":        {"pt": "ETL & Pipelines",    "en": "ETL & Pipelines"},
+    "linguagens": {"pt": "Linguagens",         "en": "Languages"},
+    "modelagem":  {"pt": "Modelagem & Dados",  "en": "Modeling & Data"},
+    "bi":         {"pt": "Visualização & BI",  "en": "Visualization & BI"},
+    "devops":     {"pt": "DevOps & Infra",     "en": "DevOps & Infra"},
+    "seguranca":  {"pt": "Segurança & Redes",  "en": "Security & Networking"},
+    "apis":       {"pt": "APIs & Integração",  "en": "APIs & Integration"},
+    "outros":     {"pt": "Outros",             "en": "Other"},
+}
+
+
+def _agrupar_equivalentes(equivalentes, lingua: str,
+                          groups=None) -> dict[str, list[str]]:
+    """Põe cada equivalente ao lado da tecnologia que o justifica.
+
+    Na linha do que o candidato TEM, não na categoria do termo pedido: assim
+    "equivalente: Airflow" aparece colado em "Azure Data Factory", e a ponte se
+    explica sozinha para quem lê. Categorizar pelo termo pedido punha Airflow
+    numa linha distante do que o sustenta — e o fazia sumir de vez quando aquela
+    linha não existia no currículo, que é como Tableau desapareceu de um perfil
+    sem Power BI.
+
+    `groups` é a saída de `_group_techs`. Sem ela, cai na categoria do próprio
+    termo; e o que não casar em lugar nenhum vai para a última linha, porque
+    sumir em silêncio é o pior desfecho.
+    """
+    from jobapplier import vocabulario as vocab
+
+    saida: dict[str, list[str]] = {}
+    for termo in equivalentes:
+        alvo = None
+        for categoria, tecnologias in (groups or []):
+            if any(vocab.sao_equivalentes(termo, t) for t in tecnologias):
+                alvo = categoria
+                break
+        if alvo is None:
+            for chave, keywords in _TECH_GROUPS:
+                if any(_match_tech(termo, kw) for kw in keywords):
+                    rotulo = _ROTULOS_TEC[chave][lingua]
+                    alvo = rotulo if not groups or any(
+                        c == rotulo for c, _ in groups) else None
+                    break
+        if alvo is None and groups:
+            alvo = groups[-1][0]
+        if alvo:
+            saida.setdefault(alvo, []).append(termo)
+    return saida
+
+
+def _idioma_do_curriculo(resume: dict) -> str:
+    """Idioma do documento, lido do próprio texto do currículo.
+
+    Lido em vez de recebido para o gerador não depender de quem o chamou: há
+    caminho de inspeção manual e de reprocessamento que não conhece a vaga. Na
+    dúvida, português — é o idioma do arquivo mestre padrão, e um documento em
+    português para vaga em inglês é ruim, mas um em inglês para recrutador
+    brasileiro é pior.
+    """
+    from jobapplier import idioma as mod_idioma
+
+    experiencias = resume.get("experiencias") or []
+    bullets = []
+    for exp in experiencias[:2]:
+        desc = exp.get("descricao") or []
+        bullets.extend(desc if isinstance(desc, list) else [str(desc)])
+
+    detectado = mod_idioma.detectar(resume.get("resumo_profissional") or "",
+                                    " ".join(str(b) for b in bullets))
+    return detectado if detectado in _ROTULOS else "pt"
 
 
 def _match_tech(tech: str, keyword: str) -> bool:
@@ -62,19 +162,19 @@ def _match_tech(tech: str, keyword: str) -> bool:
     return kw in t
 
 
-def _group_techs(techs: list[str]) -> list[tuple[str, list[str]]]:
+def _group_techs(techs: list[str], lingua: str = "pt") -> list[tuple[str, list[str]]]:
     assigned: set[str] = set()
     groups: list[tuple[str, list[str]]] = []
-    for cat_name, keywords in _TECH_GROUPS:
+    for chave, keywords in _TECH_GROUPS:
         matched = [t for t in techs if t not in assigned
                    and any(_match_tech(t, kw) for kw in keywords)]
         for t in matched:
             assigned.add(t)
         if matched:
-            groups.append((cat_name, matched))
+            groups.append((_ROTULOS_TEC[chave][lingua], matched))
     outros = [t for t in techs if t not in assigned]
     if outros:
-        groups.append(("Outros", outros))
+        groups.append((_ROTULOS_TEC["outros"][lingua], outros))
     return groups
 
 
@@ -239,12 +339,12 @@ def _section_bar(label: str, styles, doc_width):
     return row
 
 
-def _exp_header(cargo, empresa, inicio, fim, styles, doc_width):
+def _exp_header(cargo, empresa, inicio, fim, styles, doc_width, presente="Presente"):
     """Linha: cargo + empresa (esquerda) | datas (direita) — largura fixa correta."""
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, Table, TableStyle
 
-    date_str = f"{_esc(inicio)} – {_esc(fim) or 'Presente'}"
+    date_str = f"{_esc(inicio)} – {_esc(fim) or presente}"
     date_w = 3.6 * cm          # largura real em pontos
 
     left_p = Paragraph(
@@ -265,20 +365,33 @@ def _exp_header(cargo, empresa, inicio, fim, styles, doc_width):
     return tbl
 
 
-def _tech_table(groups, styles, doc_width):
-    """Tabela 2 colunas: categoria (bold) | valores."""
+def _tech_table(groups, styles, doc_width, equivalentes=None, lingua="pt"):
+    """Tabela 2 colunas: categoria (bold) | valores.
+
+    `equivalentes` acrescenta, na categoria certa, o que a vaga pede e o
+    candidato não tem mas cuja ferramenta equivalente ele usa. Vai como
+    "equivalente: AWS, GCP", nunca como "AWS" solto — a palavra é o que separa
+    nomear uma correspondência de afirmar experiência inexistente.
+    """
     from reportlab.lib.colors import HexColor
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     cat_w = 3.8 * cm
     val_w = doc_width - cat_w
+    rotulo = "equivalent" if lingua == "en" else "equivalente"
+    por_categoria = _agrupar_equivalentes(equivalentes or [], lingua, groups)
 
     rows = []
     for cat, vals in groups:
+        texto = _esc(", ".join(vals))
+        extra = por_categoria.get(cat)
+        if extra:
+            texto += (f'<br/><font color="{GRAY2}"><i>{rotulo}: '
+                      f'{_esc(", ".join(extra))}</i></font>')
         rows.append([
             Paragraph(_esc(cat), styles["tech_cat"]),
-            Paragraph(_esc(", ".join(vals)), styles["tech_val"]),
+            Paragraph(texto, styles["tech_val"]),
         ])
 
     tbl = Table(rows, colWidths=[cat_w, val_w])
@@ -302,6 +415,7 @@ def generate_pdf(
     output_path: Path,
     preview: bool = True,
     estrito: bool = True,
+    idioma: str | None = None,
 ) -> Path:
     """Gera o PDF do currículo. Sempre renderiza um preview e verifica o layout.
 
@@ -330,6 +444,9 @@ def generate_pdf(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    lingua = idioma if idioma in _ROTULOS else _idioma_do_curriculo(resume)
+    ROT = _ROTULOS[lingua]
+
     L = R = 1.8 * cm
     T = B = 1.6 * cm
     PAGE_W, _ = A4
@@ -338,7 +455,7 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         str(output_path), pagesize=A4,
         leftMargin=L, rightMargin=R, topMargin=T, bottomMargin=B,
-        title=resume.get("nome", "Currículo"),
+        title=resume.get("nome") or ROT["curriculo"],
     )
     styles = _make_styles()
     story  = []
@@ -389,7 +506,7 @@ def generate_pdf(
     # ── Resumo Profissional ───────────────────────────────────────────────────
     resumo = resume.get("resumo_profissional", "")
     if resumo:
-        story.append(_section_bar("Resumo Profissional", styles, DOC_W))
+        story.append(_section_bar(ROT["resumo"], styles, DOC_W))
         story.append(Spacer(1, 4))
         story.append(Paragraph(_esc(resumo), styles["body"]))
         story.append(Spacer(1, 8))
@@ -397,13 +514,13 @@ def generate_pdf(
     # ── Experiência Profissional ──────────────────────────────────────────────
     experiencias = resume.get("experiencias", [])
     if experiencias:
-        story.append(_section_bar("Experiência Profissional", styles, DOC_W))
+        story.append(_section_bar(ROT["experiencia"], styles, DOC_W))
         for i, exp in enumerate(experiencias):
             block = [Spacer(1, 5)]
             block.append(_exp_header(
                 exp.get("cargo", ""), exp.get("empresa", ""),
                 exp.get("data_inicio", ""), exp.get("data_fim", ""),
-                styles, DOC_W,
+                styles, DOC_W, ROT["presente"],
             ))
 
             desc = exp.get("descricao", "")
@@ -453,9 +570,11 @@ def generate_pdf(
     # ── Competências Técnicas ─────────────────────────────────────────────────
     techs = resume.get("tecnologias", [])
     if techs:
-        story.append(_section_bar("Competências Técnicas", styles, DOC_W))
+        story.append(_section_bar(ROT["competencias"], styles, DOC_W))
         story.append(Spacer(1, 4))
-        story.append(_tech_table(_group_techs(techs), styles, DOC_W))
+        story.append(_tech_table(
+            _group_techs(techs, lingua), styles, DOC_W,
+            equivalentes=resume.get("equivalencias"), lingua=lingua))
         story.append(Spacer(1, 8))
 
     # ── Formação + Certificações lado a lado ─────────────────────────────────
@@ -467,7 +586,7 @@ def generate_pdf(
         # Coluna esquerda: Formação
         left_items = []
         if formacao:
-            left_items.append(_section_bar("Formação Acadêmica", styles, DOC_W))
+            left_items.append(_section_bar(ROT["formacao"], styles, DOC_W))
             left_items.append(Spacer(1, 4))
             for f in formacao:
                 curso  = _esc(f.get("curso", ""))
@@ -482,7 +601,7 @@ def generate_pdf(
         # Coluna direita: Certificações
         right_items = []
         if certs:
-            right_items.append(_section_bar("Certificações", styles, DOC_W))
+            right_items.append(_section_bar(ROT["certificacoes"], styles, DOC_W))
             right_items.append(Spacer(1, 4))
             from collections import defaultdict
             by_emissor: dict[str, list[str]] = defaultdict(list)
@@ -524,7 +643,7 @@ def generate_pdf(
 
     # ── Idiomas ───────────────────────────────────────────────────────────────
     if idiomas:
-        story.append(_section_bar("Idiomas", styles, DOC_W))
+        story.append(_section_bar(ROT["idiomas"], styles, DOC_W))
         story.append(Spacer(1, 4))
         parts = [
             f"<b>{_esc(i.get('nome',''))}</b> — {_esc(i.get('nivel',''))}"

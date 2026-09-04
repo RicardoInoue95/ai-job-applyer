@@ -57,7 +57,11 @@ def test_status_vazio_ou_none():
 def test_grupos_separam_quem_espera_por_quem():
     """'acao' = espera por você. 'processando'/'bloqueada' = espera pelo sistema."""
     acao = set(status.exigem_sua_acao())
-    assert {"pendente", "pronta_para_revisao", "aguardando_configuracao"} <= acao
+    assert {"pronta_para_revisao", "aguardando_configuracao"} <= acao
+    # Possibilidade não é pendência: score baixo não entra na contagem de
+    # "esperando por você" — inflaria o painel com 195 itens que o usuário
+    # escolheu não ver por padrão.
+    assert "pendente" not in acao
     # Estes esperam pelo sistema ou por código, não pelo usuário.
     assert "nova" not in acao
     assert "aprovada" not in acao
@@ -110,3 +114,56 @@ def test_paginas_da_ui_compilam():
     ui = Path(__file__).resolve().parents[2] / "ui"
     for arquivo in ui.rglob("*.py"):
         py_compile.compile(str(arquivo), doraise=True)
+
+
+# ── Legado e atual não se somam ───────────────────────────────────────────────
+# `enviada` do acervo antigo significava "o botão foi clicado";
+# `enviada_confirmada` exige prova na página. Foi essa frouxidão que produziu a
+# taxa real de 3,4% da auditoria. Somar os dois dá um número que não descreve
+# nem um período nem o outro — e reclassificar inventaria certeza sobre envios
+# que ninguém verificou.
+
+@pytest.mark.parametrize("codigo", ["enviada", "perguntas_pendentes", "erro"])
+def test_reconhece_status_legado(codigo):
+    assert status.e_legado(codigo)
+
+
+@pytest.mark.parametrize("codigo", [
+    "enviada_confirmada", "revisao_manual", "falha_automacao",
+    "aguardando_verificacao", "simulada",
+])
+def test_status_atual_nao_e_legado(codigo):
+    assert not status.e_legado(codigo)
+
+
+def test_a_fonte_do_legado_e_unica():
+    """A lista mora em `applicators.base.STATUS_LEGADOS`, que já existia para
+    leitura de linha antiga. Repeti-la em `status.py` criaria a segunda cópia."""
+    import inspect
+
+    from jobapplier.applicators.base import STATUS_LEGADOS
+
+    assert "STATUS_LEGADOS" in inspect.getsource(status.e_legado)
+    for codigo in STATUS_LEGADOS:
+        assert status.e_legado(codigo)
+
+
+def test_todo_legado_esta_catalogado_com_rotulo():
+    """Sem o rótulo "(legado)" no relatório, os dois vocabulários parecem um só."""
+    from jobapplier.applicators.base import STATUS_LEGADOS
+
+    for codigo in STATUS_LEGADOS:
+        assert "legado" in status.de_candidatura(codigo).rotulo.lower()
+
+
+def test_panorama_separa_as_duas_epocas():
+    import inspect
+    import sys as _sys
+    from pathlib import Path
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import panorama
+
+    fonte = inspect.getsource(panorama._candidaturas_por_epoca)
+    assert "e_legado" in fonte
+    assert "não some as duas" in fonte

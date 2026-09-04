@@ -15,14 +15,60 @@ from jobapplier.applicators.base import (
 
 logger = logging.getLogger(__name__)
 
-GUPY_JOB_RE = re.compile(r"https?://([^.]+)\.gupy\.io/jobs/(\d+)")
+#: Formato antigo: o id da vaga aparece direto na URL.
+GUPY_JOB_RE = re.compile(r"https?://([^.]+)\.gupy\.io/jobs?/(\d+)")
+
+#: Formato atual do portal: `/job/<base64>`, onde o base64 decodifica para
+#: `{"jobId": 12147158, "source": "gupy_portal"}`. A query string que vem depois
+#: (`?jobBoardSource=...`) é rastreamento e não entra no token.
+GUPY_TOKEN_RE = re.compile(r"https?://([^.]+)\.gupy\.io/job/([A-Za-z0-9+/=_-]+)")
 
 
 def _parse_link(link: str) -> tuple[str, str] | None:
-    m = GUPY_JOB_RE.match(link)
-    if not m:
+    """(slug, job_id) a partir do link da vaga, ou None se não for link de vaga.
+
+    Os dois formatos convivem: o coletor por empresa monta `/jobs/{id}`, e o
+    portal devolve `/job/{token}`. O parser aceitava só o primeiro, e recusava
+    100% das 322 vagas coletadas do portal — mesma classe de defasagem que
+    zerava o coletor, e igualmente silenciosa: cada vaga virava um
+    `falha_automacao` individual em vez de um erro visível.
+    """
+    if not link:
         return None
-    return m.group(1), m.group(2)  # (slug, job_id)
+
+    m = GUPY_JOB_RE.match(link)
+    if m:
+        return m.group(1), m.group(2)
+
+    m = GUPY_TOKEN_RE.match(link)
+    if m:
+        identificador = _id_do_token(m.group(2))
+        if identificador:
+            return m.group(1), identificador
+    return None
+
+
+def _id_do_token(token: str) -> str | None:
+    """Extrai `jobId` do token base64 do portal.
+
+    Token corrompido devolve None em vez de levantar: um link estranho tem que
+    virar uma vaga sem automação, nunca derrubar a esteira de candidaturas.
+    """
+    import base64
+    import json
+
+    try:
+        # base64 urlsafe sem padding é comum em URL; recompõe antes de decodificar.
+        preenchido = token + "=" * (-len(token) % 4)
+        dados = json.loads(
+            base64.urlsafe_b64decode(preenchido).decode("utf-8", "ignore")
+        )
+    except Exception as exc:
+        logger.debug("Token Gupy ilegível (%s): %s", token[:20], exc)
+        return None
+
+    identificador = dados.get("jobId") if isinstance(dados, dict) else None
+    return str(identificador) if identificador else None
 
 
 def apply(vaga, resume: dict, pdf_path: Path | None, cover_letter: str | None) -> dict:

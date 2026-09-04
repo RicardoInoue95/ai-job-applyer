@@ -12,6 +12,7 @@ markers = [
     "e2e: usa Playwright real contra HTML local (sem rede). Exige browser instalado.",
     "live: toca rede ou site de terceiros. NUNCA roda por padrão nem em CI.",
     "db: exige PostgreSQL de pé.",
+    "pessoal: compara com data/config.json e data/resume.json do candidato; pula quando ausentes (ver tests/conftest.py).",
 ]
 filterwarnings = [
     # DeprecationWarning vindo do nosso próprio código é erro; de dependência, não.

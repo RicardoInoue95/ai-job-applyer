@@ -1,178 +1,208 @@
-import json
+"""Histórico: o que foi preparado, o que foi enviado e o que travou.
 
-import _bootstrap  # noqa: F401  # deve vir antes de qualquer import de jobapplier
+Reescrita depois de uma revisão de UX. A versão anterior era uma sequência de
+accordions genéricos — para saber o que aconteceu com uma candidatura era
+preciso abrir uma a uma, e não havia como comparar duas. Cinco `st.metric`
+soltos no topo misturavam grandezas diferentes sob o rótulo "Total".
+
+Agora é tabela: vaga, empresa, plataforma, status, data. Dá para ordenar,
+filtrar e ver trinta linhas de uma vez. O detalhe de uma candidatura específica
+continua acessível, mas deixou de ser o único caminho.
+
+Uma correção de vocabulário que importa: "Erros" virou **Falhas técnicas**. Erro
+sugere que o usuário errou; o que essas linhas registram é automação que não
+completou.
+"""
+import _bootstrap  # noqa: F401, I001  # antes de qualquer import de jobapplier
+import _ui
+
 import streamlit as st
 
 from jobapplier.config.manager import ConfigManager
 
-st.set_page_config(
-    page_title="Candidaturas — AI Job Applier",
-    page_icon="🎯",
-    layout="wide",
-)
-
 config = ConfigManager()
-if not config.is_setup_complete():
-    st.switch_page("pages/1_Setup.py")
-
-st.title("🎯 Candidaturas")
 
 try:
     from sqlalchemy import func
 
+    from jobapplier import status as vocab
     from jobapplier.database.connection import get_session
     from jobapplier.database.models import Candidatura, Vaga
 except Exception as exc:
-    st.error(f"Erro ao conectar ao banco: {exc}")
+    st.error(f"Erro ao conectar ao banco: {exc}", icon=":material/error:")
     st.stop()
 
+
+_ui.cabecalho("Candidaturas",
+              "Acompanhe o histórico e o andamento das suas candidaturas.")
+
 # ── Métricas ──────────────────────────────────────────────────────────────────
+# Cada uma diz o que conta. "Total" sozinho misturava candidatura enviada,
+# documento preparado e tentativa que falhou — números de naturezas diferentes
+# somados sob um rótulo que não explicava nada.
+
+#: Vocabulário novo + legado: linhas antigas do banco continuam contando.
+GRUPOS = {
+    "enviadas": ("enviada_confirmada", "enviada"),
+    "revisao": ("revisao_manual", "perguntas_pendentes"),
+    "preparadas": ("simulada",),
+    "falhas": ("falha_automacao", "erro"),
+}
 
 with get_session() as session:
-    total = session.query(func.count(Candidatura.id)).scalar() or 0
-    # Vocabulário novo + legado: linhas antigas do banco continuam contando.
-    enviadas = session.query(func.count(Candidatura.id)).filter(
-        Candidatura.status.in_(["enviada_confirmada", "enviada"])
-    ).scalar() or 0
-    pendentes = session.query(func.count(Candidatura.id)).filter(
-        Candidatura.status.in_(["revisao_manual", "perguntas_pendentes"])
-    ).scalar() or 0
-    erros = session.query(func.count(Candidatura.id)).filter(
-        Candidatura.status.in_(["falha_automacao", "erro"])
-    ).scalar() or 0
-    simuladas = session.query(func.count(Candidatura.id)).filter(
-        Candidatura.status == "simulada"
-    ).scalar() or 0
-    ats_med = session.query(func.avg(Candidatura.ats_score_otimizado)).filter(Candidatura.ats_score_otimizado.isnot(None)).scalar()
+    contagem = {
+        nome: (session.query(func.count(Candidatura.id))
+               .filter(Candidatura.status.in_(codigos)).scalar() or 0)
+        for nome, codigos in GRUPOS.items()
+    }
+    ats_med = (session.query(func.avg(Candidatura.ats_score_otimizado))
+               .filter(Candidatura.ats_score_otimizado.isnot(None)).scalar())
+    aprovadas_count = (session.query(func.count(Vaga.id))
+                       .filter(Vaga.status == "aprovada").scalar() or 0)
 
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Total", total)
-col2.metric("Enviadas", enviadas)
-col3.metric("Requer revisão", pendentes)
-col4.metric("Erros", erros)
-col5.metric("ATS médio", f"{ats_med:.1f}%" if ats_med else "—")
+m1, m2, m3, m4 = st.columns(4)
+with m1:
+    _ui.metrica("Enviadas", contagem["enviadas"], "confirmadas pela plataforma")
+with m2:
+    _ui.metrica("Aguardando revisão", contagem["revisao"],
+                "pergunta em branco ou envio sem prova")
+with m3:
+    _ui.metrica("Preparadas", contagem["preparadas"],
+                "documentos prontos, não enviadas")
+with m4:
+    _ui.metrica("Falhas técnicas", contagem["falhas"], "nada foi submetido")
 
-st.divider()
+if ats_med:
+    st.caption(f"Aderência ATS média dos currículos adaptados: {ats_med:.0f}%")
 
-# ── Botão candidatar ──────────────────────────────────────────────────────────
-
-with get_session() as session:
-    aprovadas_count = session.query(func.count(Vaga.id)).filter(Vaga.status == "aprovada").scalar() or 0
+# ── Ação principal ────────────────────────────────────────────────────────────
+# Leva à revisão do que está pronto, não a um envio em massa sem contexto.
 
 if aprovadas_count:
-    st.info(f"**{aprovadas_count}** vagas aprovadas aguardando candidatura.")
-    if st.button("🚀 Candidatar vagas aprovadas agora", type="primary"):
-        with st.spinner("Otimizando currículos, gerando cover letters e candidatando..."):
-            try:
-                from jobapplier.orchestrator import run_applications
-                run_applications()
-                st.success("✓ Processo de candidatura concluído!")
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Erro: {exc}")
-    st.divider()
+    with st.container(border=True):
+        esq, dir_ = st.columns([2.6, 1], vertical_alignment="center")
+        with esq:
+            st.markdown(
+                f"**{aprovadas_count} vagas aprovadas** aguardam preparação de "
+                "documentos. Depois disso, você revisa e envia."
+            )
+        with dir_:
+            st.page_link("pages/5_Aplicar.py", label="Ir para a revisão",
+                         icon=":material/rate_review:", use_container_width=True)
 
-# ── CPF aviso ─────────────────────────────────────────────────────────────────
+# ── Filtros ───────────────────────────────────────────────────────────────────
 
-dados_pessoais = config.get("dados_pessoais") or {}
-if not dados_pessoais.get("cpf"):
-    st.warning(
-        "⚠️ **CPF não configurado** — necessário para candidaturas XP Inc e outras empresas. "
-        "Configure em [Setup → Etapa 3](1_Setup)."
-    )
+_ui.secao("Histórico")
 
-# ── Histórico ─────────────────────────────────────────────────────────────────
+TODOS = "Todos os status"
+_codigos = [s.codigo for s in vocab.CANDIDATURA]
 
-st.subheader("Histórico de candidaturas")
+f1, f2, f3 = st.columns([1.4, 1.3, 1.3])
+with f1:
+    busca = st.text_input("Buscar", placeholder="Vaga ou empresa",
+                          label_visibility="collapsed")
+with f2:
+    filtro_status = st.selectbox(
+        "Status", [TODOS, *_codigos], label_visibility="collapsed",
+        format_func=lambda c: c if c == TODOS else vocab.de_candidatura(c).rotulo)
+with f3:
+    filtro_plataforma = st.multiselect(
+        "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire"],
+        placeholder="Plataforma", label_visibility="collapsed")
 
 with get_session() as session:
-    rows = (
-        session.query(Candidatura, Vaga)
-        .join(Vaga, Candidatura.vaga_id == Vaga.id, isouter=True)
-        .order_by(Candidatura.criado_em.desc())
-        .limit(50)
-        .all()
+    q = (session.query(Candidatura, Vaga)
+         .join(Vaga, Candidatura.vaga_id == Vaga.id))
+    if filtro_status != TODOS:
+        q = q.filter(Candidatura.status == filtro_status)
+    if filtro_plataforma:
+        q = q.filter(Vaga.plataforma.in_(filtro_plataforma))
+    if busca:
+        termo = f"%{busca.lower()}%"
+        q = q.filter(func.lower(Vaga.titulo).like(termo)
+                     | func.lower(Vaga.empresa).like(termo))
+    linhas = q.order_by(Candidatura.criado_em.desc()).limit(300).all()
+    registros = [
+        {
+            "id": c.id, "status": c.status, "criado_em": c.criado_em,
+            "erro": c.erro, "perfil_base": c.perfil_base,
+            "ats_otimizado": c.ats_score_otimizado,
+            "titulo": v.titulo, "empresa": v.empresa,
+            "plataforma": v.plataforma, "link": v.link,
+        }
+        for c, v in linhas
+    ]
+
+if not registros:
+    _ui.vazio("Nenhuma candidatura com esses filtros",
+              "Prepare documentos no Dashboard e revise as vagas para começar.")
+    st.stop()
+
+st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''} "
+           "(máx. 300)")
+
+# ── Tabela ────────────────────────────────────────────────────────────────────
+# Estruturada, não accordion: o ponto é comparar e localizar, não abrir uma a uma.
+
+st.dataframe(
+    [
+        {
+            "Vaga": r["titulo"] or "—",
+            # Slug técnico ("quintoandar") não é nome de empresa na tela.
+            "Empresa": (r["empresa"] or "—").title(),
+            "Plataforma": (r["plataforma"] or "").title(),
+            "Status": vocab.de_candidatura(r["status"]).rotulo,
+            "Data": r["criado_em"],
+            "Abrir": r["link"] or None,
+        }
+        for r in registros
+    ],
+    use_container_width=True, hide_index=True, height=430,
+    column_config={
+        "Vaga": st.column_config.TextColumn(width="large"),
+        "Data": st.column_config.DatetimeColumn(format="DD/MM/YY HH:mm",
+                                                width="medium"),
+        "Abrir": st.column_config.LinkColumn(display_text="Ver vaga",
+                                             width="small"),
+    },
+)
+
+# ── Detalhe ───────────────────────────────────────────────────────────────────
+# Um por vez, escolhido — em vez de trinta accordions abertos por padrão.
+
+with st.expander("Ver detalhes de uma candidatura"):
+    escolha = st.selectbox(
+        "Candidatura", registros,
+        format_func=lambda r: f"{(r['titulo'] or '—')[:52]} — {r['empresa'] or '—'}",
+        label_visibility="collapsed",
     )
+    if escolha:
+        s = vocab.de_candidatura(escolha["status"])
+        st.markdown(_ui.badge(s.rotulo, s.tom), unsafe_allow_html=True)
+        st.caption(s.descricao)
 
-if not rows:
-    st.info("Nenhuma candidatura registrada ainda.")
-else:
-    for cand, vaga in rows:
-        STATUS_ICON = {
-            "enviada": "✅",
-            "perguntas_pendentes": "⚠️",
-            "erro": "❌",
-            "pendente": "⏳",
-        }.get(cand.status, "○")
+        d1, d2 = st.columns(2)
+        with d1:
+            st.caption(f"Perfil base: {escolha['perfil_base'] or '—'}")
+            if escolha["ats_otimizado"]:
+                st.caption(f"Aderência ATS do currículo: "
+                           f"{escolha['ats_otimizado']:.0f}%")
+        with d2:
+            if escolha["link"]:
+                st.link_button("Abrir vaga", escolha["link"],
+                               icon=":material/open_in_new:",
+                               use_container_width=True)
 
-        titulo = vaga.titulo if vaga else f"Vaga #{cand.vaga_id}"
-        empresa = vaga.empresa if vaga else "?"
-        link = vaga.link if vaga else None
+        if escolha["erro"]:
+            st.warning(escolha["erro"], icon=":material/warning:")
 
-        header = (
-            f"{STATUS_ICON} **{titulo}** · {empresa} — "
-            f"{cand.criado_em.strftime('%d/%m/%Y %H:%M') if cand.criado_em else '?'}"
-        )
-
-        with st.expander(header):
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.caption(f"Status: **{cand.status}**")
-                st.caption(f"Perfil base: {cand.perfil_base or '—'}")
-                if link:
-                    st.markdown(f"[🔗 Ver vaga]({link})")
-
-            with col2:
-                if cand.ats_score_original is not None:
-                    delta = (cand.ats_score_otimizado or 0) - cand.ats_score_original
-                    st.metric(
-                        "ATS Score",
-                        f"{cand.ats_score_otimizado:.1f}%" if cand.ats_score_otimizado else "—",
-                        delta=f"+{delta:.1f}%" if delta > 0 else f"{delta:.1f}%",
-                    )
-                if cand.keywords_adicionadas:
-                    st.caption(f"Keywords adicionadas: {', '.join(cand.keywords_adicionadas[:6])}")
-
-            with col3:
-                if cand.curriculo_path:
-                    pdf_path = __import__("pathlib").Path(cand.curriculo_path)
-                    if pdf_path.exists():
-                        with open(pdf_path, "rb") as f:
-                            st.download_button(
-                                "📄 Baixar currículo PDF",
-                                f.read(),
-                                file_name=pdf_path.name,
-                                mime="application/pdf",
-                                key=f"pdf_{cand.id}",
-                            )
-                if cand.cover_letter_path:
-                    cl_path = __import__("pathlib").Path(cand.cover_letter_path)
-                    if cl_path.exists():
-                        texto = cl_path.read_text(encoding="utf-8")
-                        with st.expander("📝 Ver cover letter"):
-                            st.text(texto)
-
-            # ── Perguntas pendentes ─────────────────────────────────────────
-            if cand.status == "perguntas_pendentes" and cand.erro:
-                try:
-                    perguntas = json.loads(cand.erro)
-                    if isinstance(perguntas, list) and perguntas:
-                        st.warning("**Perguntas sem resposta automática** — precisam ser respondidas manualmente no site:")
-                        for i, p in enumerate(perguntas, 1):
-                            st.caption(f"{i}. {p}")
-                        if link:
-                            st.markdown(f"[🌐 Completar candidatura manualmente]({link})")
-                except (json.JSONDecodeError, TypeError):
-                    st.warning(f"Detalhe: {cand.erro}")
-
-            elif cand.status == "erro" and cand.erro:
-                st.error(f"Erro: {cand.erro}")
-
-            # ── Botão retry ────────────────────────────────────────────────
-            if cand.status in ("perguntas_pendentes", "erro") and vaga:
-                if st.button("🔄 Tentar novamente", key=f"retry_{cand.id}"):
-                    with get_session() as session:
-                        session.query(Vaga).filter(Vaga.id == vaga.id).update({"status": "aprovada"})
-                    st.success("Vaga redefinida para 'aprovada'. Clique em 'Candidatar vagas aprovadas' para tentar novamente.")
-                    st.rerun()
+        if escolha["status"] in ("falha_automacao", "erro"):
+            if st.button("Tentar novamente", icon=":material/refresh:",
+                         key=f"retry_{escolha['id']}"):
+                with get_session() as session:
+                    session.query(Vaga).filter(
+                        Vaga.id == session.query(Candidatura.vaga_id)
+                        .filter(Candidatura.id == escolha["id"]).scalar()
+                    ).update({"status": "aprovada"})
+                st.success("Vaga devolvida à fila de preparação.")
+                st.rerun()

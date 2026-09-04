@@ -84,3 +84,56 @@ def test_get_target_companies_returns_saved(tmp_config):
     companies = tmp_config.get_target_companies()
     assert companies["greenhouse"] == ["airbnb", "discord"]
     assert companies["lever"] == ["shopify"]
+
+
+# ── Estado do envio: a UI não pode mostrar valor velho ────────────────────────
+# Investiguei um "bug" em que o Dashboard dizia modo sombra e a tela Revisar
+# dizia envio ativo no mesmo instante. Não era bug: o estado mudou ENTRE as duas
+# capturas. Mas responder isso custou subir o app e dirigir um navegador, e a
+# propriedade que torna a resposta óbvia cabe num teste de um segundo.
+
+def test_load_reflete_mudanca_no_arquivo(tmp_path):
+    """`ConfigManager.load()` relê o disco. Se algum dia ganhar cache, cada
+    página da UI passa a mostrar o estado do momento em que foi construída — e
+    o pior caso é a tela onde você LIGA o envio mentir sobre ele estar ligado."""
+    import json
+
+    from jobapplier.config.manager import ConfigManager
+
+    caminho = tmp_path / "config.json"
+    caminho.write_text(json.dumps({"risco": {"modo_sombra": True}}), encoding="utf-8")
+    cfg = ConfigManager(path=caminho)
+    assert cfg.load()["risco"]["modo_sombra"] is True
+
+    caminho.write_text(json.dumps({"risco": {"modo_sombra": False}}), encoding="utf-8")
+    assert cfg.load()["risco"]["modo_sombra"] is False, "load() está com cache"
+
+
+def test_esta_ativo_acompanha_o_arquivo(tmp_path):
+    """Contrato que app.py e o Dashboard compartilham: os dois chamam
+    `esta_ativo(config)`, então basta esta função ser honesta."""
+    import json
+
+    from jobapplier import envio_automatico as ea
+    from jobapplier.config.manager import ConfigManager
+
+    caminho = tmp_path / "config.json"
+    cfg = ConfigManager(path=caminho)
+
+    caminho.write_text(json.dumps({"risco": {"modo_sombra": True}}), encoding="utf-8")
+    assert ea.esta_ativo(cfg) is False
+    caminho.write_text(json.dumps({"risco": {"modo_sombra": False}}), encoding="utf-8")
+    assert ea.esta_ativo(cfg) is True
+
+
+def test_sem_config_o_padrao_e_modo_sombra(tmp_path):
+    """Arquivo ausente ou corrompido não pode significar "pode enviar"."""
+    from jobapplier import envio_automatico as ea
+    from jobapplier.config.manager import ConfigManager
+
+    ausente = ConfigManager(path=tmp_path / "nao_existe.json")
+    assert ea.esta_ativo(ausente) is False
+
+    corrompido = tmp_path / "quebrado.json"
+    corrompido.write_text("{ isto nao e json", encoding="utf-8")
+    assert ea.esta_ativo(ConfigManager(path=corrompido)) is False

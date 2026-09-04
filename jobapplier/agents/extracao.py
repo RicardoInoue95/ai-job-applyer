@@ -18,6 +18,7 @@ import re
 
 from jobapplier import vocabulario as vocab
 from jobapplier.elegibilidade import extrair_geografia as _geografia
+from jobapplier.elegibilidade import pais_de_localizacao as _pais_do_local
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,29 @@ def limpar_cargo(titulo: str) -> str:
         limpo = padrao.sub(" ", limpo)
     limpo = re.sub(r"\s{2,}", " ", limpo).strip(" -–—|,")
     return limpo or titulo.strip()
+
+
+def _geografia_completa(titulo: str, localizacao: str, descricao: str) -> dict:
+    """Geografia do texto, corrigida pelo campo estruturado de local.
+
+    O casamento textual só conhecia quatro países (US, CA, GB, BR) porque foi
+    escrito quando só havia Greenhouse. Com a Gupy no pipeline apareceram Chile,
+    México e Portugal — e "Data Engineer [remote from EU]" com `localizacao`
+    igual a "Portugal" passava com score 86, perto do topo da lista, para uma
+    vaga que exige autorização de trabalho na União Europeia.
+
+    O campo `localizacao` da API é mais confiável que o texto: é estruturado e
+    curto. Quando ele afirma um país estrangeiro, isso prevalece.
+    """
+    geografia = _geografia("\n".join((titulo, localizacao, descricao)))
+
+    pais = _pais_do_local(localizacao)
+    if pais == "XX":
+        paises = list(geografia.get("work_location_country") or [])
+        if "BR" not in paises:
+            geografia["work_location_country"] = [*paises, "XX"]
+            geografia["work_authorization_required"] = True
+    return geografia
 
 
 def normalizar(vaga) -> dict:
@@ -70,7 +94,7 @@ def normalizar(vaga) -> dict:
         # quatro dimensões que o sistema antes tratava como uma: onde a vaga
         # está, de onde dá para trabalhar, onde é preciso residir e onde é
         # preciso ter autorização.
-        **_geografia("\n".join((titulo, localizacao, descricao))),
+        **_geografia_completa(titulo, localizacao, descricao),
         # Marca a origem: sem isto não há como saber depois se um score veio de
         # extração ou de modelo, nem comparar a qualidade dos dois.
         "_origem": "deterministica",

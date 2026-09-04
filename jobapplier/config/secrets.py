@@ -186,3 +186,17 @@ def smtp_credenciais(config=None) -> tuple[str | None, str | None]:
         obter("SMTP_USER", "email", "smtp_user", config=config),
         obter("SMTP_PASS", "email", "smtp_pass", config=config),
     )
+
+
+def gupy_credenciais(config=None) -> tuple[str | None, str | None]:
+    """(usuário, senha) da Gupy. Sem fallback para config.json, de propósito.
+
+    Credencial de plataforma nunca deve existir em `data/config.json`: o arquivo
+    já carrega CPF e dados de diversidade em texto plano, e acrescentar senha ali
+    aumentaria o estrago de um vazamento sem nenhum ganho — este segredo é novo,
+    então não há compatibilidade a preservar (invariante 5).
+    """
+    return (
+        obter("GUPY_USER", config=config),
+        obter("GUPY_PASS", config=config),
+    )

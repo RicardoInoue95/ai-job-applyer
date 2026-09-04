@@ -21,6 +21,10 @@ COVER_LETTERS = DATA / "cover_letters"
 SESSIONS = DATA / "sessions"
 SCREENSHOTS = DATA / "screenshots"
 LINKEDIN_SESSION = SESSIONS / "linkedin.json"
+#: Sessão da Gupy. Capturada de login feito à mão, nunca de login automatizado:
+#: a conta do usuário é federada via OAuth do LinkedIn, e automatizar esse fluxo
+#: acoplaria o núcleo Gupy à sessão do LinkedIn — o oposto da invariante 6.
+GUPY_SESSION = SESSIONS / "gupy.json"
 
 ENV = RAIZ / ".env"
 
@@ -29,6 +33,7 @@ __all__ = [
     "COVER_LETTERS",
     "DATA",
     "ENV",
+    "GUPY_SESSION",
     "LINKEDIN_SESSION",
     "RAIZ",
     "RESUMES",

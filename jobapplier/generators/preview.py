@@ -127,9 +127,17 @@ def _blocos_de_texto(pagina) -> list[tuple[float, float, float, float, str]]:
 #: Seções que um currículo tem de ter para um ATS extrair estrutura. O PDF pode
 #: estar visualmente impecável e ainda assim ser mal interpretado se um cabeçalho
 #: sumiu — "gerar PDF bonito" e "PDF legível por ATS" não são a mesma coisa.
+#:
+#: As variantes cobrem os dois idiomas na mesma tupla, de propósito: a checagem
+#: pergunta "este documento tem seção de experiência?", e a resposta não depende
+#: do idioma. Separar por idioma exigiria detectá-lo aqui também, e um erro nessa
+#: detecção reprovaria um PDF correto — a falha é fechada, então o custo de um
+#: falso negativo é a candidatura não sair.
 SECOES_OBRIGATORIAS = (
-    ("experiencia", ("experiência profissional", "experiencia profissional")),
-    ("competencias", ("competências", "competencias", "habilidades")),
+    ("experiencia", ("experiência profissional", "experiencia profissional",
+                     "professional experience", "work experience")),
+    ("competencias", ("competências", "competencias", "habilidades",
+                      "technical skills", "skills")),
 )
 
 #: Abaixo disto o PDF provavelmente virou imagem, e um ATS não lê nada.

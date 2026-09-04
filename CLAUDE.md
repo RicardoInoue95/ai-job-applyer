@@ -14,6 +14,192 @@ de commit e docstrings. Termos técnicos consagrados ficam em inglês
 
 ---
 
+## Finalidade
+
+**O objetivo é que candidatar-se não seja maçante.** Essa é a régua: qualquer
+coisa que adicione tédio precisa ser reconsiderada, mesmo que funcione, mesmo que
+seja tecnicamente elegante.
+
+O que isso implica, e que não é óbvio:
+
+- **Volume não é sucesso.** 293 tentativas produziram 10 envios. Uma fila de 216
+  cartões é uma lista de afazeres com 216 itens — bonita ou não. Mandar **menos
+  e melhor** vale mais que automatizar o envio de muitas.
+- **Decisão sem informação é carimbo.** Se a fila tem mediana 74 e mínimo 65, os
+  cartões são indistinguíveis e o usuário está confirmando, não decidindo. O
+  problema aí é o corte do filtro, não a interface.
+- **Contabilidade que só serve ao sistema é tédio.** Se o usuário precisa voltar
+  à tela para registrar algo que não lhe rende nada, procure um sinal que já
+  exista no fluxo dele.
+- **Configuração recorrente é tédio.** Filtro que precisa ser remontado a cada
+  sessão deveria ser lembrado ou inferido.
+- **O produto é o dossiê, não o envio.** Currículo sob medida por vaga já é o
+  grosso do valor. O envio automático é um extra, e é onde mora toda a
+  fragilidade: seletor que muda, CAPTCHA, risco de conta.
+- **Honestidade sobre o limite.** Depois do link, ainda há 5–10 min de formulário
+  no site que este projeto não elimina. Não finja que elimina.
+
+### Automação por plataforma
+
+Nem toda plataforma merece o mesmo tratamento, e a diferença é deliberada:
+
+| Plataforma | Tratamento | Por quê |
+|---|---|---|
+| Greenhouse | envio automático | formulário público, sem login, sem CAPTCHA |
+| Lever | baralho, envio assistido | **hCaptcha no formulário** — medido, não suposto |
+| Gupy | baralho, envio manual | Cloudflare Turnstile no login |
+| LinkedIn | baralho, envio manual | risco de restrição da conta (invariante 6) |
+| inhire | baralho, envio assistido | reCAPTCHA no formulário — medido |
+
+Onde o envio é manual, o trabalho é deixá-lo **rápido**: dossiê pronto, respostas
+prontas, um clique para abrir. Não é aceitar o tédio — é atacá-lo onde dá.
+
+### Política de score
+
+- **Score nunca rejeita.** Abaixo do corte a vaga vira `pendente` — possibilidade
+  acessível baixando o filtro da fila, não lixo. O score do sistema não é
+  probabilidade calibrada; descartar terminalmente por ele joga fora vaga que só
+  ele achou ruim.
+- **Automação exige score alto.** Envio automático só acima de
+  `scoring.threshold_auto` (padrão 85). Entre o corte de aprovação e o de
+  automação, a vaga vai para o baralho: o sistema prepara, você decide.
+- **Possibilidade não é fila.** Score baixo fica guardado e escondido por
+  padrão. Mostrar tudo sempre recriaria a fila maçante.
+
+### Banco de respostas aprendidas
+
+O que você digita à mão uma vez, o sistema repete — `jobapplier/aprendizado.py`,
+tabela `respostas_aprendidas`. Sem isso, a etapa de perguntas da empresa na Gupy
+pede nome da mãe em cada uma das 230 vagas da fila.
+
+**Não fere a invariante 3.** A invariante proíbe o *sistema* afirmar o que o
+currículo não sustenta. Uma resposta aprendida é do candidato, repetida
+literalmente — é a única fonte que dispensa sustentação, porque veio da pessoa.
+
+**O que governa o reúso é a classe da pergunta** (`agents/respostas.Classe`):
+
+| Classe | Escopo | Porquê |
+|---|---|---|
+| `FATO`, `PREFERENCIA`, `FERRAMENTA`, `DOMINIO`, `TEMPO`, `CONSENTIMENTO`, `SENSIVEL` | global | é sobre você, e não muda de empresa para empresa |
+| `ABERTA` | por empresa | "por que a PagBank?" não responde "por que o Nubank?" |
+
+Duas regras que já custaram bug e têm teste:
+
+- **Casamento é exato** sobre a forma normalizada. "Python" e "Python 3" são
+  perguntas diferentes; frouxidão responde uma com a outra.
+- **Sigla curta casa por palavra inteira.** `"rg"` vive dentro de "ene**rg**ia",
+  "u**rg**ente" e — pior — de "ó**rg**ão". Como substring, classificava pergunta
+  de domínio como documento.
+
+O nome da empresa vira `{empresa}` na chave das classes globais, então "Você
+trabalha na empresa X?" tem uma resposta só para todas. Em pergunta `ABERTA` não
+neutraliza: ali o nome é o assunto.
+
+Revisão em `ui/pages/6_Respostas.py` — memória só é aceitável se for revisável.
+Esvaziar uma resposta **apaga** a entrada; gravar `""` faria o banco responder
+nada em todo formulário seguinte, em silêncio.
+
+### Identificar a candidatura aberta no navegador
+
+A URL do formulário da Gupy é `/candidates/applications/<id>/steps/<id>` e **não
+carrega o `jobId`**. Medido na página real: sem `__NEXT_DATA__`, sem link para a
+vaga, sem nada no DOM além do título em texto — e o título não basta, porque o
+PagBank tem duas vagas "Analista de Dados Pl." (repostagem com id novo).
+
+`api._resolver` vai da certeza para a dúvida, e **nunca deduz por título**:
+
+1. `jobId` na própria URL — página pública, `/job/<base64>`.
+2. Vínculo já gravado em `vinculos_candidatura`.
+3. `referrer` — você veio da página da vaga.
+4. Memória da aba — o service worker guarda por `sender.tab.id`, porque só ele
+   conhece a aba. Global sobrescreveria com duas vagas abertas lado a lado.
+5. Nada disso → **409 com as candidatas**, e você escolhe no aviso. 404 fica só
+   para "nenhuma vaga desta empresa no acervo".
+
+Resolvido por 3 ou 4, o vínculo é gravado e voltar por e-mail passa a funcionar
+sozinho. Precedência: **inferência não sobrescreve inferência** (senão o vínculo
+oscila a cada visita) e **inferência nunca sobrescreve sua escolha** (`origem =
+'voce'`) — senão a próxima visita reabriria a dúvida que você já resolveu.
+
+### Configuração de coleta
+
+Um padrão só, para toda plataforma: `coleta.empresas_<plataforma>` (slugs) e
+`coleta.keywords_<plataforma>` (busca por palavra-chave). Ler sempre via
+`ConfigManager.empresas(p)` / `.keywords(p)` — não invente chave nova por
+plataforma; foi assim que `gupy.search_keywords` e `linkedin.search_queries`
+divergiram do resto.
+
+## Documentação
+
+Todo `.md` do projeto vive em **`docs/`** — exceto `CLAUDE.md` e `README.md`, que
+ficam na raiz porque são o ponto de entrada. Vale para prompt de revisão, brief
+de design, tutorial e qualquer coisa nova. A raiz é para código e configuração;
+documento que vira arquivo solto lá some no meio de `run.py` e `pyproject.toml`.
+
+```
+docs/
+  initial_plan.md          especificação original, com a numeração de módulos
+  DESIGN_UI.md             régua visual: tipografia, medida, espaço
+  REVISAO_BACKEND.md       prompt de revisão de engenharia
+  REVISAO_FRONTEND.md      prompt de revisão de UI/UX
+  REVISAO_NEGOCIO.md       prompt de revisão de produto
+  TUTORIAL_LINKEDIN.md     passo a passo do perfil
+  prompt_carreira.md       fatos profissionais — fonte única
+  prompt_curriculos.md     regras de currículo por vaga
+  prompt_candidaturas.md   protocolo de candidatura assistida (núcleo)
+  comparativo_aiapply.md   o que a concorrência faz melhor, e onde discordamos
+  plataformas/             camada por plataforma: linkedin, gupy, greenhouse, inhire
+```
+
+**Prompts de candidatura seguem a mesma regra dos currículos**: um núcleo, e uma
+camada fina por plataforma que só **acrescenta** restrição — nunca afrouxa o
+núcleo, nunca redefine pretensão ou contato. Havia um prompt completo por
+plataforma e a divergência apareceu em um dia: o do LinkedIn pedia PJ igual a
+CLT e piso de R$ 7.000, faixa já substituída. `tests/unit/test_prompts.py` falha
+se um prompt divergir de `data/config.json` ou `data/resume.json`, se uma camada
+trouxer valor próprio, ou se uma referência apontar para arquivo inexistente.
+
+A família `prompt_*.md` é **minúscula**: era `PROMPT_CARREIRA.md` e as dez
+referências a ela usavam minúsculo, então o protocolo travava na checagem de
+arquivos obrigatórios.
+
+## Método de trabalho
+
+**Planeje antes de fazer.** Antes de qualquer mudança que toque mais de um
+arquivo, mude comportamento observável ou envolva escolha entre abordagens:
+escreva o plano em passos curtos e mostre-o. Só execute direto decisões muito
+simples — typo, rename local, ajuste de teste que acompanha código já decidido.
+
+Perguntas ao usuário vão no formato estruturado de opções (com recomendação
+marcada), não em prosa solta no meio da resposta.
+
+**Revisar vaga é trabalho de especialista em RH, não de leitor de score.** O
+score mede sobreposição de palavra-chave; quem contrata olha outra coisa. Toda
+vez que revisar uma vaga — antes de preparar, antes de enviar, ao montar
+qualquer lista — leia o anúncio como recrutador leria e verifique o que o número
+não vê:
+
+- **Elegibilidade.** Vaga afirmativa é reservada a um grupo. "Affirmative Action
+  for Women" apareceu com score 70 e preenchimento 85%, pronta para envio.
+- **Onde o trabalho acontece de verdade.** "Remoto" no campo normalizado e
+  *"office-first, we do not offer remote-only roles"* no corpo do anúncio já
+  ocorreram na mesma vaga. O corpo manda; e o país define autorização de
+  trabalho.
+- **Cargo, não vocabulário.** Data Scientist, Software Engineer, People
+  Analytics e Marketing Analytics Manager todos passaram de 85 por dividirem
+  stack. Nenhum é o cargo dele.
+- **Senioridade real** — Staff e Lead pedem escopo que dois anos não sustentam.
+- **Domínio.** Payments Performance Analyst é analytics em pagamentos; sem
+  experiência no domínio, as perguntas que decidem ficam em branco.
+- **Duplicata.** Mesma vaga reposta com outro id, ou a versão regular e a
+  afirmativa da mesma posição.
+
+E diga o que a candidatura tem contra ela, não só a favor. Vaga marginal enviada
+queima a empresa para a vaga certa depois — o custo de candidatar-se não é zero,
+e tratá-lo como zero é o que produz 293 tentativas e 10 envios.
+
+---
+
 ## Comandos
 
 ```powershell
@@ -65,31 +251,65 @@ O pipeline é desenhado para **gastar LLM o mais tarde possível**. Cada etapa
 descarta vagas antes da etapa mais cara. Não reordene sem entender esse custo.
 
 ```
-run_collection()                      HTTP, sem IA
-  jobapplier/collectors/*  → CollectedJob (hash = sha256(titulo+empresa+link))
-  → vagas.status = 'nova'             dedup por hash
+run_collection()                                   a cada 2h · HTTP, sem IA
+  collectors/{greenhouse,lever,gupy,inhire}  → CollectedJob
+  applicators/linkedin.collect_jobs          (só com sessão salva)
+  → vagas.status = 'nova'                    dedup por hash
 
-run_pipeline()                        por vaga com status 'nova'
-  4A  jobapplier/filters/pre_filter              texto bruto, GRÁTIS      → 'filtrada_4a'
-  2   jobapplier/agents/normalizer               LLM → normalizado_json
-  4B  jobapplier/filters/post_filter             JSON estruturado, GRÁTIS → 'filtrada_4b'
-  3   jobapplier/agents/scorer                   LLM → score 0-100
-      score >= threshold_excelente    → 'aprovada'   (candidata automaticamente)
-      score >= threshold_bom          → 'pendente'   (aguarda humano em ui/pages/3_Vagas.py)
-      abaixo                          → 'rejeitada'
+varrer_encerradas()                                a cada 6h · HTTP, sem IA
+  vigencia.checar por plataforma             404 · closed_at · status != published
+  → 'encerrada'.  INDETERMINADA nunca encerra: rede ruim não mata vaga viva.
 
-run_applications()                    por vaga com status 'aprovada'
-  Módulo 9  jobapplier/safety/guard            limites e duplicidade ANTES de gastar nada
-  12  jobapplier/agents/resume_optimizer       LLM → perfil otimizado + delta ATS
-      jobapplier/generators/pdf                → PDF
-  6   jobapplier/agents/cover_letter           LLM → texto
-  13  jobapplier/applicators/*   Playwright
-  → candidaturas + vagas.status = 'candidatada' | 'aguardando_resposta' | 'erro'
+run_pipeline()                                     +5min · por vaga 'nova'
+  4A  filters/pre_filter                     texto bruto, GRÁTIS → 'filtrada_4a'
+        cargo alvo · palavra bloqueada
+        vaga afirmativa de grupo não declarado
+        elegibilidade geográfica · localização
+  2   agents/extracao                        DETERMINÍSTICO (modo_sem_api)
+        vocabulario: tecnologias, senioridade, modalidade, setor
+  4B  filters/post_filter                    JSON estruturado, GRÁTIS → 'filtrada_4b'
+  3   agents/extracao.pontuar                skills 40 · senioridade 20
+                                             setor 15 · idioma 15 · local 10
+      >= threshold_bom   → 'aprovada'        entra na esteira 3
+      >= threshold_baixo → 'pendente'        possibilidade, escondida por padrão
+
+run_applications()                                 +15min · por vaga 'aprovada'
+  modo sombra ON (padrão)                    prepara tudo, NÃO envia → 'simulada'
+
+  Guarda 1  plataforma sem automação OU score < threshold_auto (85)
+              → dossiê pronto, envio seu ('pronta_envio_manual')
+  Guarda 2  guard.ja_candidatado             nunca duas vezes
+  Guarda 3  guard.checar_limite              24h deslizante + disjuntor
+            guard.marcar_em_andamento        lease
+
+  dossie.montar                              perfis.montar → mestre pt|en por
+                                             idioma da vaga + ênfase do perfil
+    12  agents/resume_optimizer              reordena; só reescreve COM LLM
+        generators/pdf                       PDF + preview + checagem (inv. 8)
+    6   agents/cover_letter                  idioma do currículo que vai junto
+
+  13  applicators/{greenhouse,lever,linkedin}
+      → 'enviada_confirmada' | 'revisao_manual' | 'aguardando_verificacao'
+                                             | 'falha_automacao'
+
+scripts/finalizar.py                               você, quando quiser
+  vagas em 'aguardando_verificacao'          navegador VISÍVEL
+  barreira == codigo   → busca no e-mail e preenche   (Greenhouse)
+  barreira == captcha  → você resolve                 (Lever, inhire)
+  → VOCÊ clica em enviar, no botão real
 ```
 
-Agendamento em `orchestrator.main()`: coleta a cada 2h, pipeline em +5min,
-candidaturas em +15min, relatório por e-mail às 8h. APScheduler com jobstore no
-Postgres, `max_instances=1` e `coalesce=True`.
+Agendamento em `orchestrator.main()`: coleta 2h, varredura 6h, pipeline +5min,
+candidaturas +15min, relatório às 8h, backup às 3h30. APScheduler com jobstore
+no Postgres, `max_instances=1` e `coalesce=True` — e **todo job registrado tem
+de ser função de nível de módulo**, porque o jobstore serializa por referência
+`módulo:função` (ver `tests/unit/test_orquestrador.py`).
+
+**Onde o LLM entraria, e o que muda sem ele.** Hoje o projeto roda sem chave
+nenhuma: normalização e score são determinísticos em `agents/extracao.py`, a
+carta usa gabarito por idioma, e o otimizador só reordena tecnologias — ganho de
+ATS medido em 120 vagas: **+0,00%**. Um LLM acrescentaria reescrever resumo e
+bullets com o vocabulário da vaga, que é o que de fato move o ATS.
 
 ---
 
@@ -107,6 +327,10 @@ jobapplier/            domínio — nada de UI aqui
   orchestrator.py      agendamento e as três esteiras do pipeline
   paths.py             caminhos ancorados na raiz do repositório
   tempo.py             datas: agora_utc(), hoje(), de_timestamp(), para_naive()
+  perfis.py            perfil de currículo derivado do mestre (invariante 11)
+  idioma.py            idioma da vaga: escolhe o mestre pt/en
+  aprendizado.py       banco de respostas: o que você digitou uma vez, repete
+  api.py               API local (127.0.0.1) que a extensão de navegador chama
   collectors/          Greenhouse, Lever, Gupy (APIs REST, sem browser)
   filters/             4A pré-normalização, 4B pós-normalização
   agents/              normalizer, scorer, resume_optimizer, cover_letter
@@ -123,7 +347,10 @@ ui/                    Streamlit — descartável por design
   app.py, pages/
 tests/                 unit · e2e · integration
 docs/                  especificação original
-scripts/               instalação
+scripts/               instalação, varredura, panorama, sessão assistida
+  varredura.py         tira da fila as vagas que não existem mais
+  finalizar.py         sessão assistida: você resolve o desafio e clica
+  panorama.py          números do funil, incluindo barreira de envio por board
 ```
 
 Regras que essa estrutura impõe:
@@ -209,7 +436,19 @@ autorizada, currículo com informação falsa. Não relaxe nenhum sem pedir.
     passa a sensação de proteção. Toda guarda em `safety/` tem teste que falha se
     ela for removida.
 
-11. **Segredo e PII nunca entram em log.** Desde que o log passou a ser gravado em
+11. **Fato do currículo mora só no mestre.** `data/resume.json` (e sua tradução
+    `data/resume_en.json`) são a única fonte de empresa, cargo, data, formação,
+    certificação e contato. Perfil por vaga é **derivado** por
+    `jobapplier/perfis.py`, que só troca resumo profissional e ordem de
+    tecnologias — nunca fato. Existiam quatro `resume_base_*.json` que eram
+    cópias integrais do mestre; quando o mestre foi reescrito, as quatro ficaram
+    para trás afirmando FIAP "em andamento" (concluída), **sem o telefone** (o
+    gerador de PDF lê `telefone`, então todo currículo saiu sem contato) e com o
+    nome do cliente em duas delas. Nada apareceu no score, que lê o mestre — só o
+    PDF lia as cópias. `tests/unit/test_perfis.py` falha se algum perfil ou
+    idioma divergir do mestre em fato.
+
+12. **Segredo e PII nunca entram em log.** Desde que o log passou a ser gravado em
     `data/logs/*.jsonl`, qualquer coisa logada fica em disco. Não logue
     `config.load()`, o dict de `dados_pessoais`, conteúdo de currículo nem valor
     de chave de API. Logue o nome da configuração, não o valor.
@@ -377,7 +616,8 @@ sessão ou dado pessoal.
 `addopts = "-m 'not live'"` no `pyproject.toml` garante isso. Use só quando algo
 quebrou e você precisa saber se o HTML de produção mudou: `pytest -m live`.
 
-Restrições absolutas: **apenas Greenhouse/Lever** (boards públicos, sem login) e
+Restrições absolutas: **apenas Greenhouse/Lever** (boards públicos, sem login — o
+hCaptcha do Lever só aparece no envio, e o teste live nunca envia) e
 **nunca submeter formulário** — só navegar e verificar que os campos existem.
 LinkedIn e Gupy exigem login; automatizá-los num teste queima cota de detecção e
 arrisca a conta (invariante 6).
@@ -476,6 +716,45 @@ dívida a pagar na Fase 1 com a camada `services/`. Padrões do projeto:
 `config.is_setup_complete()` no topo, imports de banco dentro de `try` com
 `st.error` + `st.stop()`, e chave de API sempre `type="password"`.
 
+**Toda alteração de frontend passa por validação visual com Playwright, antes de
+ser dada como pronta.** Capture a página em viewport de desktop (1600×900),
+abra a imagem e avalie como especialista de UI/UX — não só "carregou".
+
+```powershell
+python run.py                                        # em outro terminal
+.venv\Scripts\python.exe scripts\ui_screenshots.py   # captura em data/screenshots/ui/
+```
+
+Isto não é zelo: `HTTP 200` não prova nada porque o Streamlit devolve 200 com o
+traceback dentro da página, e o teste de contrato só pega nome de coluna errado.
+Nenhum dos dois enxerga layout. Duas telas foram entregues com
+`layout="centered"` ocupando **736px de 1600 — 46% da tela** e três *expanders*
+fechados empilhados, e isso só apareceu quando o usuário reclamou que "parece
+feito para celular". O que a captura mostra e a asserção não:
+
+- largura ocupada e espaço morto;
+- densidade — quantos elementos gastam linha inteira para não mostrar nada;
+- hierarquia — o que o olho encontra primeiro é o que mais importa?
+- estado real com dados de produção, não com a fixture do teste.
+
+`scripts/ui_screenshots.py` também imprime a largura do conteúdo. Abaixo de ~70%
+do viewport em página de trabalho, reveja o `layout`.
+
+A régua de tipografia, medida de linha e espaço está em `docs/DESIGN_UI.md`, e é
+aplicada por `ui/_estilo.py` — não invente escala nova por página.
+
+**Limites do Streamlit já testados, para não repetir a tentativa:**
+
+- `st.markdown(unsafe_allow_html=True)` **remove `onclick`**. Sobrevivem apenas
+  `href`, `target`, `rel` e `class` — verificado no DOM renderizado.
+- `st.components.v1.html` roda em iframe cujo sandbox **não tem
+  `allow-top-navigation`**. Tentar navegar o app de dentro dele dá
+  `Unsafe attempt to initiate navigation … frame is sandboxed` no console.
+- Consequência: **um clique não consegue abrir link externo e executar código ao
+  mesmo tempo.** "Abrir a vaga e avançar o cartão" exigiria componente React
+  próprio. Até lá, abrir e registrar são dois cliques — e isso está no código
+  comentado, não escondido.
+
 **Erros.** Prefira exceção específica a `except Exception` cego. Onde o cego é
 proposital (jitter, cache, coleta de uma empresa entre 150), comente o porquê.
 
@@ -541,10 +820,28 @@ desfazendo alinhamentos intencionais, sem ganho funcional.
   Some com a tabela de credenciais cifradas na Fase 1.
 - **`candidaturas` sem constraint única em `vaga_id`** — a proteção contra
   duplicata é só `guard.ja_candidatado()`, em código.
+- **Vaga afirmativa passa pelo score.** 136 no acervo (119 PCD, 13 mulheres, 4
+  pessoas negras); uma chegou a `aprovada` com 84. O score mede aderência
+  técnica e a barreira aqui não é técnica. `elegibilidade.programa_afirmativo`
+  detecta e o 4A barra — **a menos que** você declare o grupo em
+  `dados_pessoais.programas_afirmativos`. O sistema não presume nenhum lado:
+  presumir elegível manda candidatura indevida, presumir inelegível em silêncio
+  esconderia de um candidato PCD as 119 vagas feitas para ele. Por isso o motivo
+  do descarte ensina onde declarar.
+- **Vaga encerrada não sai da fila sozinha.** Amostra de 40 do Greenhouse: 22%
+  já não existiam, e as 8 da inhire estavam todas mortas — o usuário lê o
+  dossiê, decide, e leva 404. `jobapplier/vigencia.py` checa por plataforma e
+  `varrer_encerradas` roda a cada 6h. `INDETERMINADA` nunca encerra: erro de
+  rede não pode matar vaga viva.
 - **Windows-only**: `scripts/install.ps1`, sem Dockerfile da aplicação. Impede
   rodar 24/7 num VPS, que é o ponto de um bot de candidaturas.
-- **`jobapplier/applicators/lever.py` não existe** (Módulo 14). Vagas Lever
-  recebem status `sem_automacao` e são ignoradas.
+- **`jobapplier/applicators/lever.py` não existe** (Módulo 14), e a decisão é
+  deliberada: sondagem de 22 slugs devolveu **2 vagas aderentes**, ambas no
+  Spotify. `coleta.empresas_lever` está vazio e enchê-lo renderia isso. Refaça a
+  sondagem antes de implementar — a conta muda se aparecer volume.
+- **inhire é MANUAL por ensaio**, não por omissão: a página traz reCAPTCHA e
+  monta o formulário por JavaScript, sem campo no DOM inicial. São 8 vagas no
+  acervo, mas as da Radix têm os melhores scores da fila.
 - **O filtro por senioridade do Módulo 4B nunca foi implementado.** O mapa
   `SENIORIDADE_ORDEM` em `post_filter.py` segue lá sem uso, com comentário
   explicando: implementar exige decidir a política (rejeitar acima do nível do

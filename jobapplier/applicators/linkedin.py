@@ -1,7 +1,9 @@
 """Módulo — LinkedIn Easy Apply via Playwright (Phase 4)."""
 import contextlib
 import logging
+import random
 import re
+import time
 from pathlib import Path
 
 from jobapplier import paths
@@ -405,6 +407,130 @@ def _extract_job_id(href: str) -> str:
     return m.group(1) if m else ""
 
 
+#: Seletores do título na página da vaga, em ordem de preferência. LinkedIn
+#: troca as classes com frequência; o `h1` final é o que sobrevive a isso.
+_SEL_TITULO = (
+    ".job-details-jobs-unified-top-card__job-title",
+    ".jobs-unified-top-card__job-title",
+    ".top-card-layout__title",
+    "h1",
+)
+
+#: Seletores da descrição, tentados primeiro. Hoje nenhum casa: o LinkedIn
+#: passou a gerar classes ofuscadas (`_8c493269`, `c80d04fe`) que mudam a cada
+#: deploy. Ficam como caminho rápido caso voltem, mas quem resolve é
+#: `_JS_DESCRICAO`.
+_SEL_DESCRICAO = (
+    "#job-details",
+    ".jobs-description__content",
+    ".jobs-box__html-content",
+    ".description__text",
+)
+
+#: Extração por âncora textual: acha o cabeçalho "Sobre a vaga" e sobe até o
+#: ancestral que contém o corpo do texto.
+#:
+#: Feio, e é o certo aqui. Classe ofuscada muda a cada deploy do LinkedIn; o
+#: rótulo que o usuário lê na tela, não — ele é conteúdo, não implementação.
+#: Seletor por classe já estava quebrado e ninguém notou, porque `descricao`
+#: vazia era gravada em silêncio.
+_JS_DESCRICAO = """() => {
+    const rotulos = ['Sobre a vaga', 'About the job', 'Descrição da vaga'];
+    const nos = Array.from(document.querySelectorAll('h1,h2,h3,span,div'));
+    for (const rotulo of rotulos) {
+        const cabecalho = nos.find(e => (e.innerText || '').trim() === rotulo);
+        if (!cabecalho) continue;
+        let no = cabecalho;
+        for (let i = 0; i < 6 && no.parentElement; i++) {
+            no = no.parentElement;
+            const texto = (no.innerText || '').trim();
+            if (texto.length > 300) return texto;
+        }
+    }
+    return '';
+}"""
+
+#: Teto de páginas abertas por ciclo. Cada abertura é uma requisição autenticada
+#: a mais, e volume é o que a detecção do LinkedIn procura. Melhor coletar menos
+#: vagas completas que muitas vagas inúteis — 200 sem descrição renderam zero.
+MAX_DETALHES = 40
+
+
+def _detalhar(page, jobs: list[dict], limite: int = MAX_DETALHES) -> int:
+    """Abre a página de cada vaga para pegar título real e descrição.
+
+    A lista de resultados não traz descrição — ela só existe na página da vaga.
+    Sem isso, `descricao` ficava `""` e nenhuma vaga do LinkedIn passava do
+    filtro 4A: não havia texto para casar palavra-chave.
+
+    Prioriza quem está pior: vaga sem título vem antes de vaga só sem descrição,
+    porque título ausente também quebra o dedup por hash.
+
+    `time` e `random` são importados no módulo, não aqui: o ritmo entre
+    requisições é mecanismo de segurança, e import local o tornava impossível de
+    testar (invariante 10 — guarda sem teste não roda).
+    """
+    pendentes = sorted(
+        (j for j in jobs if j.get("titulo_provisorio") or not j.get("descricao")),
+        key=lambda j: not j.get("titulo_provisorio"),
+    )[:limite]
+
+    enriquecidas = 0
+    for i, vaga in enumerate(pendentes):
+        if i:
+            # Ritmo humano entre aberturas. Sem isto são 40 requisições
+            # autenticadas em rajada, que é o padrão que a detecção procura.
+            time.sleep(random.uniform(1.5, 4.0))
+        try:
+            page.goto(vaga["link"], timeout=25000, wait_until="domcontentloaded")
+            page.wait_for_timeout(1200)
+
+            if "authwall" in page.url or "/login" in page.url:
+                logger.warning("Sessão expirada ao detalhar — parando o enriquecimento.")
+                break
+
+            titulo = _primeiro_texto(page, _SEL_TITULO)
+            if titulo:
+                vaga["titulo"] = titulo
+                vaga["titulo_provisorio"] = False
+
+            descricao = _primeiro_texto(page, _SEL_DESCRICAO) or _descricao_por_ancora(page)
+            if descricao:
+                vaga["descricao"] = descricao[:20000]
+
+            if titulo or descricao:
+                enriquecidas += 1
+        except Exception as exc:
+            logger.debug("Detalhe falhou em %s: %s", vaga["link"][-24:], exc)
+
+    if pendentes:
+        logger.info("LinkedIn: %d de %d vagas detalhadas.", enriquecidas, len(pendentes))
+    return enriquecidas
+
+
+def _descricao_por_ancora(page) -> str:
+    """Descrição pelo rótulo visível, quando nenhuma classe casa."""
+    try:
+        return (page.evaluate(_JS_DESCRICAO) or "").strip()
+    except Exception as exc:
+        logger.debug("Âncora textual falhou: %s", exc)
+        return ""
+
+
+def _primeiro_texto(page, seletores: tuple[str, ...]) -> str:
+    for seletor in seletores:
+        try:
+            elemento = page.query_selector(seletor)
+        except Exception:
+            continue
+        if elemento is None:
+            continue
+        texto = (elemento.inner_text() or "").strip()
+        if texto:
+            return texto
+    return ""
+
+
 def _scrape_cards(page, max_cards: int) -> list[dict]:
     """Extrai vagas dos cards. Prioriza data-occludable-job-id."""
     jobs: list[dict] = []
@@ -480,10 +606,13 @@ def _scrape_cards(page, max_cards: int) -> list[dict]:
                     if loc:
                         break
 
-            # Cards occluded podem ter link mas não título ainda — aceita assim
-            # O título ficará vazio e será preenchido ao normalizar a vaga
+            # Card ainda não renderizado devolve link sem título. O placeholder
+            # é provisório e `_detalhar` o substitui pelo título real; se ficar,
+            # `titulo_provisorio` avisa quem for consumir.
+            provisorio = not title
             jobs.append({
                 "titulo": title or f"Vaga LinkedIn {link.rstrip('/').split('/')[-1]}",
+                "titulo_provisorio": provisorio,
                 "empresa": company,
                 "localizacao": loc,
                 "link": link,
@@ -601,7 +730,23 @@ def collect_jobs(search_queries: list[str], location: str = "São Paulo, BR",
             except Exception as exc:
                 logger.warning("Erro LinkedIn '%s': %s", query, exc)
 
+        # Só depois de varrer todas as queries: assim o teto de aberturas é
+        # gasto nas vagas que faltam de verdade, e não nas primeiras que
+        # apareceram.
+        if all_jobs:
+            _detalhar(page, all_jobs)
+
         browser.close()
 
+    sem_titulo = sum(1 for j in all_jobs if j.get("titulo_provisorio"))
+    sem_descricao = sum(1 for j in all_jobs if not j.get("descricao"))
+    if sem_descricao:
+        # Vaga sem descrição não sobrevive ao filtro 4A. Contar em silêncio foi
+        # o que deixou 200 vagas inúteis passarem despercebidas por semanas.
+        logger.warning(
+            "LinkedIn: %d de %d vagas sem descrição (e %d sem título real) — "
+            "essas não passarão do filtro 4A.",
+            sem_descricao, len(all_jobs), sem_titulo,
+        )
     logger.info("LinkedIn: %d vagas coletadas no total", len(all_jobs))
     return all_jobs

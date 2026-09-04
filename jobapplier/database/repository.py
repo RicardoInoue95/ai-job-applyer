@@ -3,7 +3,49 @@ from sqlalchemy.orm import Session
 
 from jobapplier.tempo import agora_utc
 
-from .models import CacheGemini, Vaga
+from .models import CacheGemini, Candidatura, Vaga
+
+
+class CandidaturaRepository:
+    """Desfecho de candidatura, um registro por (vaga, ciclo).
+
+    Grava por atualização quando o par já existe. Antes era sempre `INSERT`, e a
+    constraint `uq_candidaturas_vaga_ciclo` — que existe de propósito, para a
+    idempotência ser garantida pelo banco e não por checagem em código —
+    transformava isso num bug sério:
+
+    o **modo sombra grava uma candidatura `simulada`**, e o modo sombra é o
+    padrão que o próprio projeto manda rodar "por algumas semanas" antes de
+    ligar o envio. Passadas essas semanas, toda vaga tocada em sombra ficava
+    impossível de candidatar de verdade: o `INSERT` batia na constraint, a vaga
+    virava `erro`, e o tratamento de erro tentava inserir *outra* candidatura na
+    mesma chave — falha dupla, com a exceção original perdida. Havia 60 vagas
+    nesse estado.
+
+    Atualizar é o certo, não um contorno: simulação e envio real são a **mesma**
+    tentativa naquela vaga. Recandidatura deliberada é o que incrementa `ciclo`,
+    exatamente como o comentário da constraint descreve.
+    """
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def registrar(self, vaga_id: int, ciclo: int = 1, **campos) -> Candidatura:
+        """Cria ou atualiza o registro daquela tentativa e devolve a linha."""
+        cand = (
+            self.session.query(Candidatura)
+            .filter(Candidatura.vaga_id == vaga_id, Candidatura.ciclo == ciclo)
+            .one_or_none()
+        )
+        if cand is None:
+            cand = Candidatura(vaga_id=vaga_id, ciclo=ciclo, **campos)
+            self.session.add(cand)
+            return cand
+
+        for chave, valor in campos.items():
+            setattr(cand, chave, valor)
+        cand.atualizado_em = agora_utc()
+        return cand
 
 
 class VagaRepository:
@@ -71,10 +113,17 @@ class VagaRepository:
                 if vaga.fonte_vaga_id else None
             )
 
-            if identidade is not None:
-                duplicada = identidade in existentes_id or identidade in vistos_id
-            else:
-                duplicada = vaga.hash in existentes_hash or vaga.hash in vistos_hash
+            # As duas checagens somam, não se substituem. Usar identidade EM VEZ
+            # de hash quebrava a coleta inteira: linhas coletadas antes da
+            # migration 004 têm fonte_vaga_id nulo, então a busca por identidade
+            # não as encontrava, a inserção seguia, e o unique legado do hash
+            # estourava — derrubando o lote e, com ele, todo o ciclo de coleta.
+            duplicada = (
+                vaga.hash in existentes_hash
+                or vaga.hash in vistos_hash
+                or (identidade is not None
+                    and (identidade in existentes_id or identidade in vistos_id))
+            )
 
             if duplicada:
                 skipped += 1

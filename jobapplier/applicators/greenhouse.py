@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 
+from jobapplier import salario
 from jobapplier.applicators.base import (
     ENVIADA_CONFIRMADA,
     FALHA_AUTOMACAO,
@@ -184,6 +185,58 @@ def _value_to_label(values: list, value_id: str) -> str | None:
     return None
 
 
+#: Texto que a página mostra quando exige um humano para submeter. Vindo de
+#: captura real do formulário da Adyen: "A verification code was sent to
+#: <e-mail>. To submit your application, enter the 8-character code to confirm
+#: you're a human."
+_MARCAS_VERIFICACAO = (
+    "verification code was sent",
+    "confirm you're a human",
+    "confirm you are a human",
+    "enter the 8-character code",
+    "código de verificação",
+    "codigo de verificacao",
+    "confirme que você é humano",
+)
+
+#: Campos que só existem nessa etapa. Confirmam o texto: página que fala em
+#: "verification code" num aviso de privacidade não tem onde digitar um.
+#:
+#: Os dois primeiros vêm do HTML real da Adyen, capturado em
+#: `data/screenshots/falhas/`: são oito caixas de um caractere,
+#: `id="security-input-0"` até `-7`, **sem atributo `name`**. A primeira versão
+#: destes seletores procurava `name*='security_code'` e não casava com nada — o
+#: texto era detectado, o campo não, e a checagem exige os dois, então a Adyen
+#: continuava caindo em "falha técnica".
+_SELETORES_VERIFICACAO = (
+    "input[id^='security-input']",
+    "input[aria-errormessage*='verification' i]",
+    "input[autocomplete='one-time-code']",
+    "input[name*='security_code' i]",
+    "input[name*='verification' i]",
+    "input[id*='security_code' i]",
+)
+
+
+def _pede_verificacao_humana(page, content: str) -> bool:
+    """A página está pedindo prova de que há um humano submetendo?
+
+    Exige texto **e** campo. Só o texto daria falso positivo em qualquer página
+    que mencione verificação numa política de privacidade, e falso positivo aqui
+    é caro: a vaga entraria em `STATUS_BLOQUEIA_RETENTATIVA` e nunca mais seria
+    tentada sozinha.
+    """
+    if not any(m in content for m in _MARCAS_VERIFICACAO):
+        return False
+    for seletor in _SELETORES_VERIFICACAO:
+        try:
+            if page.query_selector(seletor) is not None:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _is_diversidade(label: str) -> bool:
     label_lower = label.lower()
     return any(d in label_lower for d in [
@@ -198,13 +251,107 @@ def _auto_answer(
 ) -> str | list | None:
     config_dados = config_dados or {}
     label_lower = label.lower()
+
+    # ── Veto central, antes de qualquer regra ────────────────────────────────
+    # A política de resposta vive em `agents/respostas.py`, com testes, e não
+    # tinha nenhum chamador — segurança que não roda. Aplicá-la aqui é o que a
+    # torna real, e o formato é veto e não reescrita: as ~40 regras abaixo
+    # continuam decidindo o valor, mas nenhuma delas pode devolver algo que a
+    # política proíbe.
+    #
+    # Antes cada ramo precisava lembrar sozinho de recusar dado sensível, e o
+    # esquecimento não fazia barulho: "Consentimento - Diversidade e Inclusão"
+    # caía no sim automático de consentimento porque a regra de consentimento
+    # não sabia de diversidade.
+    from jobapplier.agents import respostas
+
+    classe = respostas.classificar(label)
+    if classe is respostas.Classe.SENSIVEL:
+        # Pergunta sensível não passa por NENHUMA das regras abaixo — era esse o
+        # ponto do veto, e ele continua. O que muda é o destino: em vez de sempre
+        # `None`, vai para a autodeclaração, que devolve `None` enquanto o
+        # candidato não tiver declarado o valor.
+        #
+        # Repetir a declaração dele não é o sistema decidindo por ele — é a mesma
+        # lógica do banco de respostas. Antes, o ramo de diversidade lá embaixo
+        # era inalcançável: código morto lendo uma config que nunca era usada, e
+        # raça e gênero viravam pergunta manual em todo formulário.
+        return _autodeclaracao(label_lower, values, config_dados)
+
+    # Pergunta composta pede que TODAS as partes sejam verdadeiras. "Experiência
+    # com Spark e Kafka" com só uma das duas é "não" — e como não dá para saber
+    # qual parte o candidato cobre sem lê-la, a resposta é dele.
+    #
+    # Consentimento fica de fora: ali o "e" é gramatical, não são duas condições
+    # sobre o candidato. "Dados confidenciais E manuseados conforme a Política de
+    # Privacidade" é um consentimento só, e o veto o transformava em pergunta
+    # manual — travando toda candidatura do c6bank depois do resto ter dado certo.
+    if (classe is not respostas.Classe.CONSENTIMENTO
+            and respostas._e_composta(label) and _is_yes_no(field_type, values)):
+        return None
     techs_resume = [t.lower() for t in resume.get("tecnologias", [])]
     experiencias = resume.get("experiencias", [])
     cargo_atual = experiencias[0].get("cargo", "") if experiencias else ""
     empresa_atual = experiencias[0].get("empresa", "") if experiencias else ""
 
+    # ── Identificação básica, por rótulo ─────────────────────────────────────
+    # No Greenhouse estes são preenchidos por seletor fixo (`#first_name`,
+    # `#email`) e nunca passavam por aqui. A extensão de navegador é o primeiro
+    # chamador que os manda por rótulo — e nome, e-mail e telefone são os três
+    # campos mais comuns de qualquer formulário. Ficavam como pergunta manual.
+    if any(k in label_lower for k in ("nome completo", "full name", "seu nome",
+                                      "your name")) or label_lower.strip() in (
+                                          "nome", "name"):
+        return resume.get("nome") or None
+
+    # Antes de "primeiro nome": "Nome de preferência" contém "nome" e casaria com
+    # a regra errada. É campo OBRIGATÓRIO em vários formulários Greenhouse e não
+    # era preenchido — a candidatura do c6bank parou com "Nome de preferência é
+    # obrigatório" depois de todo o resto ter dado certo.
+    if any(k in label_lower for k in ("nome de preferência", "nome de preferencia",
+                                      "preferred name", "nome social",
+                                      "como prefere ser chamad")):
+        nome = resume.get("nome") or ""
+        return nome.split()[0] if nome else None
+
+    if any(k in label_lower for k in ("primeiro nome", "first name")):
+        nome = resume.get("nome") or ""
+        return nome.split()[0] if nome else None
+
+    if any(k in label_lower for k in ("sobrenome", "last name", "surname")):
+        partes = (resume.get("nome") or "").split()
+        return " ".join(partes[1:]) if len(partes) > 1 else None
+
+    if any(k in label_lower for k in ("e-mail", "email", "correio")):
+        return resume.get("email") or None
+
+    if any(k in label_lower for k in ("telefone", "celular", "phone", "whatsapp")):
+        return resume.get("telefone") or None
+
     if "cpf" in label_lower:
         return config_dados.get("cpf") or None
+
+    # Documentos que a Gupy pede na etapa de perguntas da empresa. Sem eles no
+    # `dados_pessoais` o retorno é None e a pergunta vira manual — que é o
+    # correto: não se inventa um RG (invariante 3).
+    #
+    # `\brg\b` e não `"rg" in label`: "Órgão" contém "rg", e casar por substring
+    # devolveria o número do RG para a pergunta do órgão emissor. A do órgão é
+    # testada antes por conter os dois termos.
+    tem_rg = bool(re.search(r"\brg\b", label_lower)) or "registro geral" in label_lower
+    if tem_rg and any(k in label_lower for k in ("emiss", "expedi", "org")):
+        return config_dados.get("rg_orgao_emissor") or None
+    if tem_rg:
+        return config_dados.get("rg") or None
+
+    if "nome da mãe" in label_lower or "nome da mae" in label_lower:
+        return config_dados.get("nome_mae") or None
+
+    if "nome do pai" in label_lower:
+        return config_dados.get("nome_pai") or None
+
+    if "naturalidade" in label_lower:
+        return config_dados.get("naturalidade") or None
 
     if "linkedin" in label_lower:
         return resume.get("linkedin") or None
@@ -229,8 +376,35 @@ def _auto_answer(
             return _pick_value(values, "São Paulo (SP)") or _pick_value(values, "São Paulo")
         return None
 
+    # País de residência. Vem ANTES da cidade de propósito: a regra da cidade
+    # casa a substring "reside", que engole "country where you currently reside"
+    # e devolve None — o país virava pergunta manual por acidente de ordem, em
+    # todo board internacional.
+    if any(k in label_lower for k in [
+        "country where you currently reside", "country of residence",
+        "country you reside", "país de residência", "pais de residencia",
+        "país onde reside", "pais onde reside",
+    ]):
+        if field_type in ("input_text", "textarea"):
+            return "Brazil"
+        return _pick_value(values, "Brazil") or _pick_value(values, "Brasil")
+
     # Cidade de residência
-    if any(k in label_lower for k in ["cidade", "reside", "onde você mora"]):
+    #
+    # `\bcidade\b` e não `"cidade" in`: **"privacidade" termina em "cidade"**, e
+    # "Você está de acordo com a Política de Privacidade?" caía aqui, não achava
+    # São Paulo na lista e devolvia None. Todo formulário brasileiro tem essa
+    # frase, então todo consentimento virava pergunta manual — e a candidatura
+    # parava depois de tudo o mais ter dado certo. Segundo caso hoje de termo
+    # curto casando por substring; o primeiro foi "rg" dentro de "órgão".
+    if (re.search(r"\bcidade\b", label_lower)
+            or any(k in label_lower for k in ["reside", "onde você mora"])):
+        # Campo de texto: escreve a localização direto. A regra abaixo só sabia
+        # escolher opção numa lista, então "Cidade onde reside" em campo aberto
+        # caía fora e virava pergunta manual — invisível enquanto só o
+        # Greenhouse chamava, porque lá o campo é `#candidate-location`.
+        if field_type in ("input_text", "textarea"):
+            return resume.get("localizacao") or None
         loc = resume.get("localizacao", "").lower()
         if "são paulo" in loc:
             # Duas passadas, exato antes de prefixo. Uma passada única aceitando
@@ -379,7 +553,26 @@ def _auto_answer(
     if "agente" in label_lower and "autônom" in label_lower and _is_yes_no(field_type, values):
         return _no_value(values)
 
-    if any(k in label_lower for k in ["consentimento", "consent", "análise do seu perfil", "analise do seu perfil", "otimizar a análise"]):
+    if any(k in label_lower for k in [
+        "consentimento", "consent", "análise do seu perfil", "analise do seu perfil",
+        "otimizar a análise",
+        # A regra de privacidade mais abaixo só conhece inglês ("privacy
+        # policy", "privacy notice"), e todo formulário brasileiro escreve
+        # "Política de Privacidade". Entram AQUI, e não lá, porque este ramo tem
+        # a guarda que recusa consentir em dado sensível.
+        "política de privacidade", "politica de privacidade",
+        "tratamento de dados", "proteção de dados", "protecao de dados", "lgpd",
+        "de acordo em fornecer",
+    ]):
+        # Consentir em processar a candidatura é formalidade sem a qual nada
+        # anda. Consentir em fornecer raça, gênero ou deficiência é outra coisa:
+        # é a categoria que a regra de nunca-inferir protege, e dizer "sim" por
+        # ele entrega o dado que ele talvez não quisesse dar.
+        # "Consentimento - Diversidade e Inclusão (D&I)" caía no sim automático.
+        if _is_diversidade(label) or any(
+            k in label_lower for k in ("diversidade", "d&i", "inclusão", "inclusao",
+                                       "dados sensíveis", "dados sensiveis")):
+            return None
         if _is_yes_no(field_type, values):
             return _yes_value(values)
 
@@ -401,6 +594,10 @@ def _auto_answer(
         "how did you hear", "how did you find", "how did you learn", "how did you first learn",
         "source of hire", "source of application", "como ficou sabendo", "como você ficou",
         "canal", "canais",
+        # Redação da Gupy, vista num formulário real: nenhuma das acima casava,
+        # e a pergunta virava manual mesmo tendo resposta óbvia.
+        "onde você encontrou", "onde voce encontrou", "como você conheceu",
+        "como voce conheceu", "como soube desta", "onde viu esta vaga",
     ]):
         if field_type in ("input_text", "textarea"):
             return "LinkedIn"
@@ -409,10 +606,25 @@ def _auto_answer(
         if val:
             return [val] if field_type == "multi_value_multi_select" else val
 
+    # Remuneração ATUAL não é pretensão. "What is your current compensation?" e
+    # "Do you currently receive any variable compensation?" casavam com a palavra
+    # "compensation" e passaram a receber a faixa desejada assim que a pretensão
+    # virou automática — respondendo o que ele quer ganhar na pergunta sobre o
+    # que ele ganha. Isso é declaração falsa sobre um fato, não ênfase, e o
+    # currículo não informa salário atual. Pergunta manual.
+    if any(k in label_lower for k in [
+        "current compensation", "current salary", "currently receive",
+        "present salary", "salário atual", "salario atual",
+        "remuneração atual", "remuneracao atual", "último salário",
+    ]):
+        return None
+
     # Salary expectation
     if any(k in label_lower for k in [
-        "salary expectation", "pretensão salarial", "pretensao salarial",
-        "remuneração esperada", "salário desejado", "salary range", "compensation",
+        "salary expectation", "expected salary", "desired salary",
+        "pretensão salarial", "pretensao salarial", "remuneração esperada",
+        "remuneracao esperada", "salário desejado", "salario desejado",
+        "salary range", "compensation expectation", "expected compensation",
     ]):
         # Sem valor configurado, NÃO responde. O fallback anterior escrevia
         # "A combinar" — não é mentira, mas é uma decisão de negociação tomada
@@ -421,12 +633,41 @@ def _auto_answer(
         # candidato, e preferência ausente vira pergunta manual.
         #
         # Configure em dados_pessoais.salario (ou salario_esperado no currículo)
-        # para voltar a preencher automaticamente — inclusive com "A combinar",
-        # se essa for a sua escolha.
+        # para fixar um texto próprio — inclusive "A combinar", se for a sua
+        # escolha. Sem isso, a faixa de `pretensao` na config responde.
         salary = config_dados.get("salario") or resume.get("salario_esperado")
-        if salary and field_type in ("input_text", "textarea"):
-            return str(salary)
-        return None
+        if salary:
+            return str(salary) if field_type in ("input_text", "textarea") else None
+
+        # A faixa vive em `pretensao` no config e o módulo já sabe converter para
+        # PJ e formatar por tipo de campo. Antes esta função só olhava
+        # `dados_pessoais.salario`, que está vazio: duas fontes de pretensão, e a
+        # que o formulário consultava não era a que o usuário configurou.
+        # "Pretensão salarial" é a pergunta obrigatória que mais bloqueia envio
+        # no acervo — 17 ocorrências.
+        if field_type not in ("input_text", "textarea", "number"):
+            return None
+        resposta = salario.responder(
+            texto_vaga=" ".join(str(normalizado.get(c) or "") for c in
+                                ("regime_contratacao", "cargo", "modalidade")),
+            senioridade=str(normalizado.get("senioridade") or ""),
+            tipo_campo="number" if field_type == "number" else "input_text",
+        )
+        return resposta["valor"] if resposta else None
+
+    # Empregador e cargo atual/anterior. O currículo tem os dois; a variante
+    # "current or previous" não casava com a regra de "cargo atual".
+    if any(k in label_lower for k in [
+        "current or previous employer", "current or most recent employer",
+        "most recent employer", "empregador atual", "empresa atual",
+    ]) and field_type in ("input_text", "textarea"):
+        return empresa_atual or None
+
+    if any(k in label_lower for k in [
+        "current or previous job title", "current or most recent title",
+        "most recent job title", "current title",
+    ]) and field_type in ("input_text", "textarea"):
+        return cargo_atual or None
 
     # City / location (text field)
     if any(k in label_lower for k in [
@@ -440,18 +681,42 @@ def _auto_answer(
         nome = resume.get("nome", "")
         return nome.split()[0] if nome else None
 
-    # Previous employment at THIS company
+    # Vínculo prévio com ESTA empresa. As variantes reais dos boards não casavam
+    # com a lista antiga — "Have you ever been employed by Stripe", "Você já
+    # trabalhou em algum momento no C6 Bank?", "Are you currently or have you
+    # ever worked for Airbnb in any capacity?". É a segunda família que mais
+    # bloqueia envio, com ~25 ocorrências no acervo.
     if any(k in label_lower for k in [
         "previously been employed", "previously worked for", "former employee",
-        "worked here before", "have you worked at",
+        "worked here before", "have you worked at", "have you ever been employed",
+        "have you ever worked", "ever worked for", "employed by",
+        "já trabalhou", "ja trabalhou", "trabalhou conosco", "ex-funcionário",
+        "ex-funcionario", "você trabalha", "voce trabalha",
     ]) and _is_yes_no(field_type, values):
+        # "Não" aqui é derivação, não chute: o currículo lista o histórico
+        # completo, então a ausência da empresa nele é informação. Se ela
+        # aparecer, o sistema não responde — quem trabalhou lá sabe responder
+        # melhor que uma comparação de strings.
+        empregadores = " ".join(
+            str(e.get("empresa") or "") for e in experiencias).lower()
+        empresa_vaga = str(normalizado.get("empresa") or "").lower().strip()
+        if empresa_vaga and empresa_vaga in empregadores:
+            return None
         return _no_value(values)
 
-    # General work authorization in the COUNTRY (non-US-specific)
+    # Autorização de trabalho NO PAÍS DA VAGA. Respondia "Sim" sempre, e a
+    # pergunta é sobre o país onde a vaga está — que na maioria dos boards do
+    # Greenhouse não é o Brasil. "Sim" ali é declaração falsa numa pergunta
+    # eliminatória, e o candidato só descobre na entrevista.
     if any(k in label_lower for k in [
         "authorized to work in the country", "authorised to work in the country",
         "right to work where this role",
     ]):
+        pais_vaga = " ".join(str(normalizado.get(c) or "") for c in
+                             ("pais", "localizacao", "modalidade")).lower()
+        brasileira = any(t in pais_vaga for t in ("brasil", "brazil", " br"))
+        if not brasileira:
+            return None
         if _is_yes_no(field_type, values):
             return _yes_value(values)
         # "What is the source of your right to work?"
@@ -473,22 +738,56 @@ def _auto_answer(
         if _is_yes_no(field_type, values):
             return _no_value(values)
 
-    if _is_diversidade(label):
-        diversidade = config_dados.get("diversidade", {})
-        if any(k in label_lower for k in ["deficiência", "deficiencia", "pcd"]):
-            return (_pick_value(values, "Prefer not to answer")
-                    or _pick_value(values, "Prefiro não responder")
-                    or _pick_value(values, "No ("))
-        if any(k in label_lower for k in ["gênero", "genero", "identidade de gênero"]):
-            g = diversidade.get("genero", "")
-            return _pick_value(values, g) if g else None
-        if any(k in label_lower for k in ["orientação sexual", "orientacao sexual"]):
-            o = diversidade.get("orientacao", "")
-            return _pick_value(values, o) if o else None
-        if any(k in label_lower for k in ["raça", "raca", "etnia"]):
-            r = diversidade.get("raca", "")
-            return _pick_value(values, r) if r else None
+    # ── Parentesco: a resposta muda com a empresa ────────────────────────────
+    # "Não" é verdade em quase toda parte e falso onde ele tem parente. Responder
+    # globalmente escreveria uma declaração falsa num formulário real — e é a
+    # invariante 3 pelo caminho menos óbvio, o de uma resposta certa reaproveitada
+    # onde não vale. Nas empresas declaradas, a resposta é dele.
+    if any(k in label_lower for k in ("parentesco", "parente", "familiar",
+                                      "grau de parentesco")):
+        alvo = (normalizado.get("empresa") or "").lower()
+        excecoes = [str(e).lower().strip()
+                    for e in (config_dados.get("parentesco_empresas") or []) if e]
+        if any(e and e in alvo for e in excecoes):
+            return None
+        if _is_yes_no(field_type, values):
+            return _no_value(values)
 
+    if any(k in label_lower for k in ("indicad", "indicou", "indicação de",
+                                      "referral", "referred by")):
+        if _is_yes_no(field_type, values):
+            return _no_value(values)
+
+    return None
+
+
+def _autodeclaracao(label_lower: str, values: list, config_dados: dict) -> str | None:
+    """Responde pergunta sensível **só** com o que o candidato declarou.
+
+    Sem declaração, `None` — vira pergunta manual, nunca um chute. O valor é
+    casado contra as opções do formulário: cada empresa escreve as suas de um
+    jeito, e devolver o texto do config direto não marcaria nada.
+    """
+    d = config_dados.get("diversidade") or {}
+
+    if any(k in label_lower for k in ("deficiência", "deficiencia", "pcd")):
+        v = d.get("deficiencia", "")
+        if not v:
+            return None
+        # "Não" precisa casar com "Não, não possuo deficiência", "No", "No (…)".
+        if v.strip().lower().startswith(("não", "nao", "no")):
+            return (_pick_value(values, "Não") or _pick_value(values, "Nao")
+                    or _pick_value(values, "No"))
+        return _pick_value(values, v)
+
+    for termos, chave in (
+        (("identidade de gênero", "identidade de genero", "gênero", "genero"), "genero"),
+        (("orientação sexual", "orientacao sexual"), "orientacao"),
+        (("raça", "raca", "etnia", "cor"), "raca"),
+    ):
+        if any(t in label_lower for t in termos):
+            v = d.get(chave, "")
+            return _pick_value(values, v) if v else None
     return None
 
 
@@ -504,26 +803,109 @@ def _pw_fill_text(page, selector: str, text: str):
         logger.debug("fill %s: %s", selector, exc)
 
 
+def _pw_marcar_checkbox(page, field_id: str, valor: str) -> bool:
+    """Marca o checkbox de `field_id` cujo value é `valor`. False se não é checkbox.
+
+    O Greenhouse monta o id do input concatenando o nome do campo e o value:
+    ``question_67923270[]`` + ``_731111200``. Confere `is_checked()` depois de
+    marcar em vez de assumir sucesso — o input real fica sob um SVG decorativo, e
+    um clique interceptado falha sem levantar exceção.
+    """
+    try:
+        cb = page.query_selector(f'input[type=checkbox][id="{field_id}_{valor}"]')
+
+        # `_auto_answer` devolve 'yes' para consentimento, não o value numérico da
+        # opção. O id exato então não existe. Quando o campo tem uma única caixa,
+        # 'yes' só pode significar aquela caixa.
+        if cb is None and str(valor).strip().lower() in _AFIRMATIVOS:
+            caixas = page.query_selector_all(
+                f'input[type=checkbox][id^="{field_id}_"]'
+            )
+            if len(caixas) == 1:
+                cb = caixas[0]
+            elif len(caixas) > 1:
+                logger.warning(
+                    "Campo %s tem %d caixas e a resposta é '%s': ambíguo, não marcado.",
+                    field_id, len(caixas), valor,
+                )
+                return False
+
+        if cb is None:
+            return False
+        if not cb.is_checked():
+            cb.check(timeout=3000)
+        marcado = cb.is_checked()
+        if not marcado:
+            logger.warning("Checkbox %s não aceitou a marcação.", field_id)
+        return marcado
+    except Exception as exc:
+        logger.warning("Erro ao marcar checkbox %s: %s", field_id, exc)
+        return False
+
+
+#: Formas afirmativas que `_auto_answer` pode devolver para um consentimento.
+_AFIRMATIVOS = frozenset({"yes", "sim", "true", "1", "y", "s"})
+
+#: Níveis de idioma: o currículo é em português, os formulários costumam ser em
+#: inglês. Sem isto, "Avançado" não casa com nenhuma opção e o campo fica vazio
+#: com a resposta certa já calculada.
+_NIVEIS_IDIOMA: dict[str, tuple[str, ...]] = {
+    "nativo": ("native", "nativo", "fluent"),
+    "fluente": ("fluent", "fluente", "native"),
+    "avancado": ("advanced", "avançado", "avancado", "fluent"),
+    "intermediario": ("intermediate", "intermediário", "intermediario"),
+    "basico": ("beginner", "basic", "básico", "basico", "elementary"),
+    "iniciante": ("beginner", "basic", "iniciante"),
+}
+
+
+def _equivalentes(texto: str) -> tuple[str, ...]:
+    """Sinônimos aceitáveis para casar uma resposta com o rótulo de uma opção."""
+    import unicodedata
+
+    chave = "".join(
+        c for c in unicodedata.normalize("NFD", texto.strip().lower())
+        if unicodedata.category(c) != "Mn"
+    )
+    return _NIVEIS_IDIOMA.get(chave, ())
+
+
 def _pw_select_react(page, field_id: str, label_text: str, timeout: int = 4000) -> bool:
     """Seleciona uma opção em um react-select dropdown."""
     bare_id = field_id.replace("[]", "")
     selector = f'[id="{field_id}"]'
     opt_selector = f'[id*="react-select-"][id*="{bare_id}"][id*="-option"]'
     try:
+        # Candidatos em ordem de preferência: o rótulo pedido e, só depois, seus
+        # equivalentes. "Avançado" precisa achar "C. Advanced" num formulário em
+        # inglês, mas sem nunca preferir o equivalente ao termo exato.
+        candidatos = (label_text.lower(), *_equivalentes(label_text))
+
         page.click(selector, timeout=3000)
         page.wait_for_selector(opt_selector, timeout=timeout)
-        options = page.query_selector_all(opt_selector)
-        for opt in options:
-            if label_text.lower() in (opt.inner_text() or "").lower():
-                opt.click()
-                return True
-        # Fallback: type to filter
+
+        def escolher() -> bool:
+            opcoes = [
+                (o, (o.inner_text() or "").lower())
+                for o in page.query_selector_all(opt_selector)
+            ]
+            for termo in candidatos:
+                for opt, texto in opcoes:
+                    if termo in texto:
+                        opt.click()
+                        return True
+            return False
+
+        if escolher():
+            return True
+        # Fallback: digitar para filtrar a lista.
         page.fill(selector, label_text[:20])
         page.wait_for_timeout(600)
-        for opt in page.query_selector_all(opt_selector):
-            if label_text.lower() in (opt.inner_text() or "").lower():
-                opt.click()
-                return True
+        if escolher():
+            return True
+        logger.warning(
+            "Nenhuma opção de '%s' casa com '%s'.", field_id, label_text[:40]
+        )
     except Exception as exc:
         logger.debug("react-select %s / %s: %s", field_id, label_text[:30], exc)
     return False
@@ -615,8 +997,21 @@ def _us_auth_phrases_globais() -> tuple[str, ...]:
     )
 
 
-def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
-    """Submete candidatura via Playwright (form submission real no Greenhouse)."""
+def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None,
+          visivel: bool = False, ao_verificar=None) -> dict:
+    """Submete candidatura via Playwright (form submission real no Greenhouse).
+
+    `visivel=True` abre o navegador na tela, e `ao_verificar` é chamado quando a
+    plataforma exige verificação humana para submeter — recebe a `page` e
+    devolve True se a candidatura foi confirmada. Os dois existem para
+    `scripts/finalizar.py`, a sessão em que o candidato está presente e clica
+    em enviar ele mesmo.
+
+    São parâmetros e não uma segunda função de propósito: um `apply_visivel`
+    paralelo seria uma cópia destas 279 linhas, e cópia diverge — o formulário
+    do Greenhouse muda, uma das duas é corrigida, e a outra passa a enviar
+    errado sem ninguém perceber.
+    """
     from playwright.sync_api import sync_playwright
 
     from jobapplier.config.manager import ConfigManager
@@ -696,7 +1091,7 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
     last_name = " ".join(partes[1:]) if len(partes) > 1 else first_name
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, slow_mo=80)
+        browser = pw.chromium.launch(headless=not visivel, slow_mo=80)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             locale="pt-BR",
@@ -729,15 +1124,33 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
             except Exception as exc:
                 logger.warning("Erro ao fazer upload do PDF: %s", exc)
 
-        # Cover letter (textarea ou file upload)
+        # Cover letter. Nos formulários novos do Greenhouse o textarea não existe
+        # até clicar em "Enter manually": o campo nasce como quatro botões
+        # (Attach / Dropbox / Google Drive / Enter manually). Sem esse clique a
+        # carta simplesmente não entrava — e nada acusava, porque o applicator
+        # tratava textarea ausente como "esta vaga não pede carta".
         if cover_letter:
             cl_area = page.query_selector("textarea#cover_letter_body")
+            if not cl_area:
+                botao_manual = page.query_selector("button:has-text('Enter manually')")
+                if botao_manual:
+                    try:
+                        botao_manual.click()
+                        page.wait_for_timeout(800)
+                        cl_area = page.query_selector(
+                            "textarea#cover_letter_body, textarea[id*='cover'], "
+                            "textarea[name*='cover']"
+                        )
+                    except Exception as exc:
+                        logger.warning("Erro ao abrir a carta manual: %s", exc)
             if cl_area:
                 cl_area.fill(cover_letter[:8000])
             else:
                 cl_text_area = page.query_selector("#cover_letter_text")
                 if cl_text_area:
                     cl_text_area.fill(cover_letter[:8000])
+                else:
+                    logger.warning("Carta gerada, mas nenhum campo aceitou o texto.")
 
         # ── Perguntas customizadas ─────────────────────────────────────────
         for field_name, info in answer_map.items():
@@ -757,8 +1170,18 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
                     _pw_select_react(page, field_name, label_text)
 
             elif field_type == "multi_value_multi_select":
+                # A API chama isto de multi-select, mas o Greenhouse renderiza de
+                # duas formas diferentes: dropdown react-select quando há várias
+                # opções, e CHECKBOX quando há uma só — o caso dos consentimentos
+                # obrigatórios. Tratar checkbox como dropdown fazia o applicator
+                # esperar 4s por uma lista que nunca abre e desistir em silêncio,
+                # deixando um campo obrigatório em branco com a resposta já
+                # calculada na mão.
                 answer_list = answer if isinstance(answer, list) else [answer]
                 for val in answer_list:
+                    if _pw_marcar_checkbox(page, field_name, str(val)):
+                        page.wait_for_timeout(200)
+                        continue
                     label_text = _value_to_label(values_list, str(val)) or str(val)
                     if label_text:
                         _pw_select_react(page, field_name, label_text)
@@ -826,6 +1249,22 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
             "texto de candidatura enviada": ("candidatura" in content and "enviada" in content),
         }
 
+        # O envio parou num passo que só um humano passa? Isso NÃO é falha: o
+        # formulário foi preenchido inteiro e a plataforma pediu prova de que há
+        # gente do outro lado. Sem esta checagem a Adyen virava "nenhum sinal de
+        # submissão", indistinguível de seletor quebrado.
+        verificacao_humana = _pede_verificacao_humana(page, content)
+
+        # Sessão assistida: o candidato está na frente da tela. O gancho preenche
+        # o código e espera o clique DELE no botão real. Nada aqui clica em
+        # enviar — se o gancho devolver False, o desfecho segue sendo
+        # "aguardando verificação", nunca "enviada".
+        if verificacao_humana and ao_verificar is not None:
+            if ao_verificar(page):
+                sinais_fortes["confirmação em sessão assistida"] = True
+                verificacao_humana = False
+                content = page.content().lower()
+
         # Captura possíveis erros de validação
         validation_errors = []
         try:
@@ -848,7 +1287,8 @@ def apply(vaga, resume: dict, pdf_path: Path, cover_letter: str | None) -> dict:
         browser.close()
 
     status, justificativa = avaliar_confirmacao(
-        sinais_fortes, perguntas_manuais=perguntas_manuais, sinais_fracos=sinais_fracos,
+        sinais_fortes, perguntas_manuais=perguntas_manuais,
+        sinais_fracos=sinais_fracos, verificacao_humana=verificacao_humana,
     )
     if validation_errors and status != ENVIADA_CONFIRMADA:
         justificativa += f". Erros de validação: {'; '.join(validation_errors)}"

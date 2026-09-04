@@ -59,10 +59,25 @@ class ConfigManager:
 
         return secrets.database_url(config=self)
 
+    def empresas(self, plataforma: str) -> list:
+        """Slugs de empresa da plataforma, sempre em `coleta.empresas_<p>`.
+
+        Um padrão só para todas. Antes cada plataforma inventava o seu —
+        `gupy.search_keywords` num lugar, `linkedin.search_queries` noutro,
+        `get_target_companies()` só para duas — e quem adicionava plataforma
+        nova copiava o padrão errado.
+        """
+        return self.get("coleta", f"empresas_{plataforma.lower()}", default=[]) or []
+
+    def keywords(self, plataforma: str) -> list:
+        """Palavras-chave de busca da plataforma, em `coleta.keywords_<p>`."""
+        return self.get("coleta", f"keywords_{plataforma.lower()}", default=[]) or []
+
     def get_target_companies(self) -> dict:
+        """Legado: prefira `empresas(plataforma)`."""
         return {
-            "greenhouse": self.get("coleta", "empresas_greenhouse", default=[]),
-            "lever": self.get("coleta", "empresas_lever", default=[]),
+            "greenhouse": self.empresas("greenhouse"),
+            "lever": self.empresas("lever"),
         }
 
     # get_scoring_thresholds() foi removido: era código morto e, pior, declarava

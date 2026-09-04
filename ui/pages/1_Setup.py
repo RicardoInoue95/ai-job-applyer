@@ -1,16 +1,11 @@
 import json
 from pathlib import Path
 
-import _bootstrap  # noqa: F401  # deve vir antes de qualquer import de jobapplier
+import _bootstrap  # noqa: F401  # antes de qualquer import de jobapplier
+import _ui
 import streamlit as st
 
 from jobapplier.config.manager import ConfigManager
-
-st.set_page_config(
-    page_title="Configuração — AI Job Applier",
-    page_icon="⚙️",
-    layout="centered",
-)
 
 config = ConfigManager()
 
@@ -26,6 +21,7 @@ STEP_LABELS = [
 ]
 
 from jobapplier import paths
+from jobapplier.perfis import PERFIS
 
 DATA_DIR = paths.DATA
 RESUMES_DIR = paths.RESUMES
@@ -122,7 +118,7 @@ def step_1():
         testar_conexao,
     )
 
-    st.title("Etapa 1 — Provedor de IA")
+    st.markdown("#### Provedor de IA")
     st.markdown(
         "Escolha qual API usará para normalizar vagas, pontuar aderência, "
         "otimizar currículo e gerar cover letters. Você pode trocar depois sem "
@@ -138,7 +134,7 @@ def step_1():
         opcoes,
         index=opcoes.index(salvo) if salvo in opcoes else 0,
         format_func=lambda p: (
-            f"{PROVEDOR_INFO[p][0]}" + (" ✓ chave configurada" if p in ja_configurados else "")
+            f"{PROVEDOR_INFO[p][0]}" + ("  · chave configurada" if p in ja_configurados else "")
         ),
     )
 
@@ -195,15 +191,15 @@ def step_1():
             config.set("llm", "provedor", value=provedor)
             config.set("llm", "modelo", value=modelo)
             config.set("llm", "fallback", value=True if usar_fallback else None)
-            st.success(f"✓ {msg}")
+            st.success(msg, icon=":material/check_circle:")
             st.session_state["llm_key_ok"] = True
         else:
-            st.error(f"✗ Erro: {msg}")
+            st.error(msg, icon=":material/error:")
             st.session_state["llm_key_ok"] = False
 
     if st.session_state.get("llm_key_ok") or chave_atual:
         st.button(
-            "Próximo →", on_click=_advance, args=(1,),
+            "Avançar", on_click=_advance, args=(1,),
             type="primary" if st.session_state.get("llm_key_ok") else "secondary",
         )
 
@@ -211,14 +207,14 @@ def step_1():
 # ── Etapa 2: Upload de Currículo ─────────────────────────────────────────────
 
 def step_2():
-    st.title("Etapa 2 — Currículo")
+    st.markdown("#### Currículo")
     st.markdown("Envie seu currículo em **PDF** ou **DOCX**. Ele será analisado e convertido para JSON.")
 
     from jobapplier.llm import provedores_configurados
 
     if not provedores_configurados():
         st.error("Configure um provedor de IA na Etapa 1 primeiro.")
-        st.button("← Voltar", on_click=_back, args=(2,))
+        st.button("Voltar", on_click=_back, args=(2,))
         return
 
     existing = DATA_DIR / "resume.json"
@@ -257,7 +253,7 @@ def step_2():
                 try:
                     from jobapplier.resume_parser.pipeline import ResumePipeline
                     pipeline = ResumePipeline()
-                    resume, profiles = pipeline.run(resume_path, RESUMES_DIR)
+                    resume, _ = pipeline.run(resume_path, RESUMES_DIR)
 
                     resume_data = resume.model_dump()
                     output_path = DATA_DIR / "resume.json"
@@ -270,7 +266,11 @@ def step_2():
                     st.caption(
                         f"{len(resume.experiencias)} experiências · "
                         f"{len(resume.tecnologias)} tecnologias · "
-                        f"{len(profiles)} perfis base gerados"
+                        f"{len(PERFIS)} perfis derivados por vaga"
+                    )
+                    st.caption(
+                        "O currículo por vaga é montado a partir deste, na hora. "
+                        "Editar aqui vale para todos os perfis."
                     )
 
                     with st.expander("Ver JSON extraído"):
@@ -284,9 +284,9 @@ def step_2():
                     st.session_state["resume_ok"] = False
 
     if st.session_state.get("resume_ok"):
-        st.button("Próximo →", on_click=_advance, args=(2,), type="primary")
+        st.button("Avançar", on_click=_advance, args=(2,), type="primary")
 
-    st.button("← Voltar", on_click=_back, args=(2,))
+    st.button("Voltar", on_click=_back, args=(2,))
 
 
 # ── Etapa 3: Preferências de Busca ──────────────────────────────────────────
@@ -390,7 +390,7 @@ def _descobrir_empresas(setores: str, cargos: str, api_key: str | None = None) -
 
 
 def step_3():
-    st.title("Etapa 3 — Preferências de Busca")
+    st.markdown("#### Preferências de busca")
     st.markdown("Configure os critérios de busca e as empresas que serão monitoradas.")
 
     saved = config.get("coleta") or {}
@@ -401,7 +401,7 @@ def step_3():
     tem_llm = bool(provedores_configurados())
 
     # ── Descoberta por setor ──────────────────────────────────────────────────
-    with st.expander("✨ Descobrir empresas por setor (recomendado)", expanded=not saved.get("empresas_greenhouse") and not saved.get("empresas_lever")):
+    with st.expander("Descobrir empresas por setor", expanded=not saved.get("empresas_greenhouse") and not saved.get("empresas_lever")):
         st.markdown("Selecione os setores de interesse e a IA vai sugerir empresas que usam Greenhouse ou Lever, validando cada uma automaticamente.")
 
         saved_setores = saved.get("setores_interesse", [])
@@ -417,7 +417,7 @@ def step_3():
         setores_input = ", ".join(setores_selecionados)
         cargos_hint = ", ".join(saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer"]))
 
-        if st.button("🔍 Descobrir empresas", type="primary", disabled=not setores_selecionados or not tem_llm):
+        if st.button("Descobrir empresas", type="primary", disabled=not setores_selecionados or not tem_llm):
             with st.spinner("Consultando Gemini e validando slugs... (pode levar 1-2 minutos)"):
                 try:
                     resultado = _descobrir_empresas(setores_input, cargos_hint)
@@ -466,7 +466,7 @@ def step_3():
 
     with st.form("prefs_form"):
         cargos_raw = st.text_area(
-            "Cargos alvo (um por linha)",
+            "Cargos de interesse (um por linha)",
             value="\n".join(saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer", "BI Analyst"])),
             height=100,
         )
@@ -488,7 +488,7 @@ def step_3():
             )
 
         salario = st.text_input(
-            "Expectativa salarial",
+            "Pretensão salarial",
             value=saved.get("salario_esperado", ""),
             placeholder="ex: R$ 8.000 - R$ 12.000",
         )
@@ -500,7 +500,7 @@ def step_3():
             help="Vagas com essas palavras no título serão ignoradas automaticamente",
         )
 
-        st.markdown("**Thresholds de scoring (0–100)**")
+        st.markdown("**Faixas de aderência (0 a 100)**")
         saved_scoring = config.get("scoring") or {}
         col_s1, col_s2 = st.columns(2)
         with col_s1:
@@ -573,6 +573,30 @@ def step_3():
             placeholder="00000000000",
             help="Obrigatório em candidaturas XP Inc e outras empresas",
         )
+        st.markdown(
+            "**Documentos** — a Gupy pede isto na etapa de perguntas da empresa, "
+            "que é onde a maior parte das candidaturas trava. Em branco, a "
+            "pergunta fica para você preencher à mão: o sistema não inventa "
+            "documento."
+        )
+        col_doc1, col_doc2 = st.columns(2)
+        with col_doc1:
+            rg = st.text_input("RG", value=saved_pessoais.get("rg", ""))
+            nome_mae = st.text_input("Nome da mãe",
+                                     value=saved_pessoais.get("nome_mae", ""))
+            naturalidade = st.text_input(
+                "Naturalidade (cidade e estado de nascimento)",
+                value=saved_pessoais.get("naturalidade", ""),
+                placeholder="São Paulo, SP",
+            )
+        with col_doc2:
+            rg_orgao = st.text_input(
+                "Órgão e Estado de emissão do RG",
+                value=saved_pessoais.get("rg_orgao_emissor", ""),
+                placeholder="SSP/SP",
+            )
+            nome_pai = st.text_input("Nome do pai",
+                                     value=saved_pessoais.get("nome_pai", ""))
         st.markdown("**Autodeclaração de diversidade** — campos opcionais, usados quando exigidos pelo formulário")
         col_d1, col_d2, col_d3 = st.columns(3)
         with col_d1:
@@ -598,6 +622,11 @@ def step_3():
             cfg = config.load()
             cfg["dados_pessoais"] = {
                 "cpf": cpf.strip(),
+                "rg": rg.strip(),
+                "rg_orgao_emissor": rg_orgao.strip(),
+                "nome_mae": nome_mae.strip(),
+                "nome_pai": nome_pai.strip(),
+                "naturalidade": naturalidade.strip(),
                 "diversidade": {
                     "genero": genero,
                     "orientacao": orientacao,
@@ -608,18 +637,64 @@ def step_3():
             st.success("✓ Dados pessoais salvos!")
             st.session_state["pessoais_ok"] = True
 
+    # ── Pretensão salarial ───────────────────────────────────────────────────
+    # Estava só no config.json, sem nenhum caminho pela interface. É o único
+    # campo que o sistema escreve em formulário e o usuário não conseguia
+    # revisar — e ele muda com o tempo, ao contrário de CPF.
+    st.divider()
+    st.markdown("**Pretensão salarial**")
+    st.caption("Campo de salário vazio lê como evasivo em triagem automática. "
+               "Quando o formulário pede um valor só, o sistema usa o topo — o "
+               "número declarado vira o teto da negociação, nunca o piso.")
+
+    faixa = config.get("pretensao") or {}
+    with st.form("pretensao_form"):
+        c_min, c_alvo, c_max = st.columns(3)
+        with c_min:
+            minimo = st.number_input("Mínimo (R$)", min_value=0, step=500,
+                                     value=int(faixa.get("minimo") or 0))
+        with c_alvo:
+            alvo = st.number_input("Alvo (R$)", min_value=0, step=500,
+                                   value=int(faixa.get("alvo") or 0))
+        with c_max:
+            maximo = st.number_input("Máximo (R$)", min_value=0, step=500,
+                                     value=int(faixa.get("maximo") or 0))
+
+        fator_pj = st.slider(
+            "Conversão CLT → PJ", 1.0, 1.6,
+            float(faixa.get("fator_pj") or 1.30), step=0.05,
+            help="Vaga PJ não tem 13º, férias, FGTS nem INSS patronal. Declarar "
+                 "valor CLT numa vaga PJ é pedir menos sem perceber.",
+        )
+        if maximo:
+            st.caption(f"Numa vaga PJ o sistema pediria "
+                       f"**R$ {int(maximo * fator_pj):,}**".replace(",", "."))
+
+        if st.form_submit_button("Salvar pretensão"):
+            if not (0 < minimo <= (alvo or minimo) <= maximo):
+                st.error("A faixa precisa ser crescente: mínimo ≤ alvo ≤ máximo, "
+                         "e o mínimo maior que zero.")
+            else:
+                cfg = config.load()
+                cfg["pretensao"] = {
+                    "minimo": int(minimo), "alvo": int(alvo or minimo),
+                    "maximo": int(maximo), "fator_pj": round(fator_pj, 2),
+                }
+                config.save(cfg)
+                st.success("✓ Pretensão salva!")
+
     col1, col2 = st.columns(2)
     with col1:
-        st.button("← Voltar", on_click=_back, args=(3,))
+        st.button("Voltar", on_click=_back, args=(3,))
     with col2:
         if st.session_state.get("prefs_ok") or saved:
-            st.button("Próximo →", on_click=_advance, args=(3,), type="primary")
+            st.button("Avançar", on_click=_advance, args=(3,), type="primary")
 
 
 # ── Etapa 4: LinkedIn ────────────────────────────────────────────────────────
 
 def step_4():
-    st.title("Etapa 4 — LinkedIn Easy Apply")
+    st.markdown("#### LinkedIn Easy Apply")
     st.markdown(
         "Configure o LinkedIn para automatizar o Easy Apply (até **10 vagas/dia**). "
         "As credenciais ficam salvas localmente — nunca são enviadas a terceiros."
@@ -660,7 +735,7 @@ def step_4():
                     cfg = config.load()
                     cfg["linkedin"] = {"email": li_email}
                     config.save(cfg)
-                    st.success(f"✓ {msg}")
+                    st.success(msg, icon=":material/check_circle:")
                     st.rerun()
                 elif msg == BLOCKED_MSG:
                     st.warning(
@@ -687,7 +762,7 @@ def step_4():
 
     st.divider()
     st.markdown("**Queries de busca para LinkedIn** — vagas buscadas automaticamente a cada 2h")
-    saved_queries = config.get("linkedin", "search_queries") or ["Data Engineer", "Analytics Engineer", "BI Analyst"]
+    saved_queries = config.keywords("linkedin") or ["Data Engineer", "Analytics Engineer", "BI Analyst"]
     queries_raw = st.text_area(
         "Cargos para buscar (um por linha)",
         value="\n".join(saved_queries) if isinstance(saved_queries, list) else saved_queries,
@@ -695,29 +770,29 @@ def step_4():
     )
     if st.button("Salvar queries"):
         cfg = config.load()
-        cfg.setdefault("linkedin", {})["search_queries"] = [q.strip() for q in queries_raw.splitlines() if q.strip()]
+        cfg.setdefault("coleta", {})["keywords_linkedin"] = [q.strip() for q in queries_raw.splitlines() if q.strip()]
         config.save(cfg)
         st.success("✓ Queries salvas!")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.button("← Voltar", on_click=_back, args=(4,))
+        st.button("Voltar", on_click=_back, args=(4,))
     with col2:
-        st.button("Próximo →" if session_valid else "Pular por ora →",
+        st.button("Avançar" if session_valid else "Pular por ora →",
                   on_click=_advance, args=(4,), type="primary")
 
 
 # ── Etapa 5: Gupy ────────────────────────────────────────────────────────────
 
 def step_5():
-    st.title("Etapa 5 — Gupy")
+    st.markdown("#### Gupy")
     st.markdown(
         "O **Gupy** é a plataforma de vagas mais usada no Brasil. "
         "Configure empresas-alvo pelo slug (ex.: `nubank`, `itau`) e palavras-chave de busca."
     )
 
-    saved_gupy = config.get("coleta", "empresas_gupy") or []
-    saved_keywords = config.get("gupy", "search_keywords") or ["Engenheiro de Dados", "Analista de BI", "Analytics Engineer"]
+    saved_gupy = config.empresas("gupy")
+    saved_keywords = config.keywords("gupy") or ["Engenheiro de Dados", "Analista de BI", "Analytics Engineer"]
 
     with st.form("gupy_companies_form"):
         st.markdown("**Slugs de empresas no Gupy** — um por linha (ex.: `nubank`, `ifood`, `xpinc`)")
@@ -738,7 +813,7 @@ def step_5():
             new_keywords = [k.strip() for k in keywords_raw.splitlines() if k.strip()]
             cfg = config.load()
             cfg.setdefault("coleta", {})["empresas_gupy"] = new_slugs
-            cfg.setdefault("gupy", {})["search_keywords"] = new_keywords
+            cfg["coleta"]["keywords_gupy"] = new_keywords
             config.save(cfg)
             st.success(f"✓ {len(new_slugs)} empresa(s) e {len(new_keywords)} keyword(s) salvos!")
 
@@ -750,16 +825,16 @@ def step_5():
 
     col1, col2 = st.columns(2)
     with col1:
-        st.button("← Voltar", on_click=_back, args=(5,))
+        st.button("Voltar", on_click=_back, args=(5,))
     with col2:
-        st.button("Próximo →" if saved_gupy or saved_keywords else "Pular por ora →",
+        st.button("Avançar" if saved_gupy or saved_keywords else "Pular por ora →",
                   on_click=_advance, args=(5,), type="primary")
 
 
 # ── Etapa 6: E-mail ──────────────────────────────────────────────────────────
 
 def step_6():
-    st.title("Etapa 6 — Notificações por E-mail")
+    st.markdown("#### Notificações por E-mail")
     st.markdown("Configure o envio de relatórios diários por e-mail. Pode ser pulado.")
 
     saved = config.get("email") or {}
@@ -802,7 +877,7 @@ def step_6():
             if ok:
                 st.success("✓ E-mail de teste enviado!")
             else:
-                st.error(f"✗ Erro: {msg}")
+                st.error(msg, icon=":material/error:")
         else:
             st.success("✓ Configuração de e-mail salva!")
 
@@ -821,12 +896,12 @@ def step_6():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.button("← Voltar", on_click=_back, args=(6,))
+        st.button("Voltar", on_click=_back, args=(6,))
     with col2:
-        st.button("Pular →", on_click=_advance, args=(6,))
+        st.button("Pular", on_click=_advance, args=(6,))
     with col3:
         if saved:
-            st.button("Próximo →", on_click=_advance, args=(6,), type="primary")
+            st.button("Avançar", on_click=_advance, args=(6,), type="primary")
 
 
 def _test_smtp(cfg: dict) -> tuple[bool, str]:
@@ -853,7 +928,7 @@ def _test_smtp(cfg: dict) -> tuple[bool, str]:
 # ── Etapa 7: Conclusão ───────────────────────────────────────────────────────
 
 def step_7():
-    st.title("🎉 Configuração concluída!")
+    st.title("Configuração concluída!")
     st.balloons()
 
     resume_data = {}
@@ -865,7 +940,7 @@ def step_7():
     companies = config.get_target_companies()
 
     from jobapplier.applicators.linkedin import has_session as li_has_session
-    gupy_slugs = config.get("coleta", "empresas_gupy") or []
+    gupy_slugs = config.empresas("gupy")
     li_session = li_has_session()
     email_cfg = config.get("email") or {}
 
@@ -902,16 +977,16 @@ def step_7():
         config.save(cfg)
         st.switch_page("pages/2_Dashboard.py")
 
-    st.button("← Voltar", on_click=_back, args=(7,))
+    st.button("Voltar", on_click=_back, args=(7,))
 
 
-# ── Roteamento de etapas ─────────────────────────────────────────────────────
-
-_init_session()
-step = st.session_state.setup_step
-
-st.markdown("# ⚙️ Configuração Inicial")
-_render_progress(step)
+# ── Roteamento ───────────────────────────────────────────────────────────────
+#
+# Duas telas, não uma. Assistente de sete etapas serve para a primeira vez; para
+# quem já configurou, ele é obstáculo — abrir a configuração para mudar a
+# pretensão salarial e cair na "Etapa 1 de 7: Provedor de IA" é pedir para
+# desistir. A partir daqui o mesmo código serve aos dois usos: as funções de
+# etapa já eram independentes.
 
 STEP_HANDLERS = {
     1: step_1,
@@ -923,5 +998,61 @@ STEP_HANDLERS = {
     7: step_7,
 }
 
-handler = STEP_HANDLERS.get(step, step_7)
-handler()
+#: Seções no modo ajuste, ordenadas pelo que muda com mais frequência — não pela
+#: ordem do assistente. Pretensão e preferências mudam; provedor de IA e
+#: currículo, quase nunca.
+SECOES = [
+    ("Preferências", 3, "Cargos, localização, condições e dados pessoais"),
+    ("Plataformas", 5, "Empresas e palavras-chave por plataforma"),
+    ("LinkedIn", 4, "Sessão salva e busca"),
+    ("Currículo", 2, "Substituir o currículo base"),
+    ("Provedor de IA", 1, "Chave de API — opcional, o sistema roda sem"),
+    ("Notificações", 6, "Relatório diário por e-mail"),
+]
+
+
+def _modo_assistente() -> None:
+    _init_session()
+    passo = st.session_state.setup_step
+    _ui.cabecalho("Configuração inicial",
+                  "Alguns passos para o sistema conhecer seu perfil.")
+    _render_progress(passo)
+    STEP_HANDLERS.get(passo, step_7)()
+
+
+def _modo_ajuste() -> None:
+    """Abas, não etapas. Depois de configurado, o wizard é obstáculo: quem abre
+    para mudar a pretensão salarial não quer cair em "Etapa 1 de 7"."""
+    _ui.cabecalho("Configurações",
+                  "Defina seu perfil, preferências e integrações.")
+
+    # `st.segmented_control`, não `st.tabs`: abas renderizam TODAS as seções ao
+    # mesmo tempo, e as sete funções de etapa desenham botões "Voltar" com o
+    # mesmo rótulo — chave duplicada, página quebrada. Renderizar só a escolhida
+    # também evita seis consultas ao banco e à API a cada carregamento.
+    rotulos = [s[0] for s in SECOES]
+    escolhido = st.segmented_control("Seção", rotulos, default=rotulos[0],
+                                     label_visibility="collapsed")
+    _, passo, descricao = next(s for s in SECOES if s[0] == (escolhido or rotulos[0]))
+
+    st.caption(descricao)
+    st.divider()
+    # As funções de etapa desenham os botões "Voltar/Próximo" do assistente.
+    # Aqui não fazem sentido, mas removê-los exigiria mexer nas sete — e esta é
+    # a página que guarda credencial e currículo. Uma legenda custa menos que o
+    # risco de quebrar a configuração inicial de quem ainda não configurou.
+    STEP_HANDLERS[passo]()
+    st.caption("Cada seção salva sozinha; os botões Voltar/Próximo pertencem "
+               "ao assistente inicial e podem ser ignorados.")
+
+    st.divider()
+    if st.button("Refazer a configuração inicial", icon=":material/restart_alt:"):
+        st.session_state.setup_step = 1
+        st.session_state["forcar_assistente"] = True
+        st.rerun()
+
+
+if config.is_setup_complete() and not st.session_state.get("forcar_assistente"):
+    _modo_ajuste()
+else:
+    _modo_assistente()
