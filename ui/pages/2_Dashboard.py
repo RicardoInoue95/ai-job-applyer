@@ -28,7 +28,7 @@ config = ConfigManager()
 try:
     from sqlalchemy import func
 
-    from jobapplier import aderencia, fila, paths
+    from jobapplier import acompanhamento, aderencia, fila, paths
     from jobapplier import envio_automatico as ea
     from jobapplier.database.connection import get_session
     from jobapplier.database.models import Vaga
@@ -42,14 +42,8 @@ except Exception as exc:
 def _numeros() -> dict:
     """O pouco que esta página precisa, numa ida ao banco."""
     with get_session() as sessao:
-        enviadas = (sessao.query(func.count(Vaga.id))
-                    .filter(Vaga.status.in_(("candidatada", "enviada_manual")))
-                    .scalar() or 0)
-        # "Aguardando retorno" honesto: enviadas sem evento registrado. Como a
-        # tabela `eventos` ainda não é alimentada, hoje é igual a "enviadas" —
-        # e a frase diz isso em vez de fingir um funil.
         ultima_coleta = sessao.query(func.max(Vaga.ultima_coleta_em)).scalar()
-    return {"enviadas": enviadas, "ultima_coleta": ultima_coleta}
+    return {"ultima_coleta": ultima_coleta}
 
 
 @st.cache_data(ttl=30)
@@ -131,14 +125,22 @@ if proxima:
 
 # ── 3. Candidaturas ───────────────────────────────────────────────────────────
 
-_ui.secao("Candidaturas")
-# Um número só. O desenho previa "11 enviadas · 3 aguardando retorno", mas o
-# sistema ainda não lê respostas por e-mail e não distingue as duas coisas —
-# dois números iguais lado a lado era o pior dos mundos. Quando a leitura de
-# e-mail existir, o segundo número entra com dado de verdade.
-st.markdown(f"### {numeros['enviadas']}")
-st.caption("enviadas · o sistema ainda não identifica respostas, então todas "
-           "contam como aguardando retorno")
+_ui.secao("Suas candidaturas")
+# Os números vêm do que você marcou em Candidaturas (funil manual, por
+# enquanto). "Aguardando" só aparece quando é diferente de "enviadas" — dois
+# números iguais lado a lado era o pior dos mundos.
+funil = acompanhamento.resumo()
+resumo = [f"**{funil.enviadas} enviadas**"]
+if funil.entrevistas:
+    resumo.append(f"{funil.entrevistas} entrevista{'s' if funil.entrevistas != 1 else ''}")
+if funil.com_resposta and funil.com_resposta != funil.entrevistas:
+    resumo.append(f"{funil.com_resposta} com resposta")
+if funil.aguardando != funil.enviadas:
+    resumo.append(f"{funil.aguardando} aguardando retorno")
+st.markdown(" · ".join(resumo))
+if funil.enviadas and funil.com_resposta == 0 and funil.recusas == 0:
+    st.caption("Marque em Candidaturas o que cada empresa respondeu — é daí "
+               "que sai 'de quantas fui chamado'.")
 st.page_link("pages/4_Candidaturas.py", label="Ver candidaturas",
              icon=":material/send:")
 

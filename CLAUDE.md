@@ -177,6 +177,24 @@ aparece como 85% e "85% · Boa" contradiria a faixa.
 o olho lia. Em Candidaturas, "aguardando alguma ação sua" conta só
 `revisao_manual`; `perguntas_pendentes` é legado de agosto e punha 168 no topo.
 
+### Funil pós-candidatura, manual por enquanto
+
+`jobapplier/acompanhamento.py`, `POST /vaga/{id}/desfecho`, seletor por
+candidatura enviada em Candidaturas. Você marca o que a empresa respondeu —
+confirmação automática, resposta, entrevista, oferta, recusa — e o número que
+o projeto nunca teve, *de quantas fui chamado?*, passa a existir. Grava em
+`eventos` com `fonte='manual'`, a mesma tabela que a leitura de e-mail
+(`desfecho.py`, ainda não implementada) vai alimentar: quando ela chegar, as
+duas fontes contam juntas. Um evento por (vaga, tipo); o resumo usa o mais
+forte de cada vaga; "sem resposta" apaga os manuais daquela vaga e nunca os
+de e-mail. "Aguardando retorno" = enviadas − com resposta − recusas, e só
+aparece no Início quando é diferente de "enviadas".
+
+Rótulos de status são o resultado para você, não o estado do sistema:
+"Envio não confirmado" em vez de "Confirmação inconclusiva", "Não conseguimos
+concluir o envio" em vez de "Falha técnica", "Preparada" em vez de "Pronta
+para você enviar". O código (`revisao_manual`, `falha_automacao`) não muda.
+
 ### Catálogo de erros e diagnóstico
 
 `jobapplier/erros.py` — todo erro tem **código estável** (`vaga-ambigua`),

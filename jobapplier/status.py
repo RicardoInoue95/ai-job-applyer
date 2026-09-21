@@ -53,15 +53,15 @@ VAGA: tuple[Status, ...] = (
            "possibilidade"),
     Status("pronta_para_revisao", "Pronta para revisão",
            "Modo sombra: documentos preparados, envio não executado", "acao", "aviso"),
-    Status("aguardando_revisao", "Confirmação inconclusiva",
+    Status("aguardando_revisao", "Envio não confirmado",
            "Formulário submetido sem prova de recebimento — confira na plataforma",
            "acao", "aviso"),
-    Status("aguardando_resposta_manual", "Pergunta sem resposta",
+    Status("aguardando_resposta_manual", "Falta uma resposta sua",
            "O formulário tem campo obrigatório que a automação não sabe preencher",
            "acao", "aviso"),
-    Status("aguardando_configuracao", "Falta configuração",
+    Status("aguardando_configuracao", "Falta um dado seu",
            "Um dado seu está ausente (ex.: CPF)", "acao", "aviso"),
-    Status("pronta_envio_manual", "Pronta para você enviar",
+    Status("pronta_envio_manual", "Preparada",
            "Currículo e carta prontos; a plataforma não permite envio automático",
            "acao", "aviso"),
     Status("adiada", "Decidir depois",
@@ -78,7 +78,7 @@ VAGA: tuple[Status, ...] = (
            "Não há applicator para esta plataforma", "bloqueada"),
     # Legado: nome anterior de 'aguardando_revisao'. 49 vagas ainda o usam, e
     # sem entrada aqui elas apareciam como "não catalogado" na interface.
-    Status("aguardando_resposta", "Confirmação inconclusiva (legado)",
+    Status("aguardando_resposta", "Envio não confirmado (legado)",
            "Registro anterior à mudança de vocabulário", "acao", "aviso"),
     # Desfechos
     Status("candidatada", "Candidatada", "Envio confirmado pela plataforma",
@@ -88,25 +88,26 @@ VAGA: tuple[Status, ...] = (
            "concluida", "bom"),
     Status("descartada_por_voce", "Descartada por você",
            "Você viu o cartão e decidiu que não vale", "descartada"),
-    Status("erro", "Erro", "Falha técnica — pode ser retentada", "problema", "ruim"),
+    Status("erro", "Não conseguimos processar", "Falha técnica — pode ser retentada",
+           "problema", "ruim"),
 )
 
 # ── Status de CANDIDATURA ─────────────────────────────────────────────────────
 
 CANDIDATURA: tuple[Status, ...] = (
-    Status("enviada_confirmada", "Enviada e confirmada",
+    Status("enviada_confirmada", "Enviada",
            "A plataforma confirmou o recebimento", "concluida", "bom"),
-    Status("revisao_manual", "Requer revisão",
+    Status("revisao_manual", "Envio não confirmado",
            "Submetida sem prova, ou com pergunta em branco", "acao", "aviso"),
-    Status("falha_automacao", "Falha técnica",
+    Status("falha_automacao", "Não conseguimos concluir o envio",
            "Nada foi submetido", "problema", "ruim"),
     # Grupo 'acao' e não 'problema': o trabalho caro já foi feito, e o que falta
     # é você digitar um código. Contá-la como falha esconderia a única categoria
     # que uma sessão assistida resolve.
-    Status("aguardando_verificacao", "Aguarda seu código",
+    Status("aguardando_verificacao", "Falta o seu código",
            "Formulário pronto; a plataforma pede verificação humana", "acao",
            "aviso"),
-    Status("simulada", "Simulada (modo sombra)",
+    Status("simulada", "Preparada, não enviada",
            "Preparada e deliberadamente não enviada", "processando"),
     # Legados: só leitura de linhas antigas do banco.
     Status("enviada", "Enviada (legado)", "Registro anterior à mudança de vocabulário",

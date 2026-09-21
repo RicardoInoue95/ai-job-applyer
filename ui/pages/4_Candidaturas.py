@@ -25,6 +25,7 @@ config = ConfigManager()
 try:
     from sqlalchemy import func
 
+    from jobapplier import acompanhamento, empresas, fila
     from jobapplier import status as vocab
     from jobapplier.database.connection import get_session
     from jobapplier.database.models import Candidatura, Vaga
@@ -33,66 +34,74 @@ except Exception as exc:
     st.stop()
 
 
-_ui.cabecalho("Candidaturas",
-              "Acompanhe o histórico e o andamento das suas candidaturas.")
+_ui.cabecalho("Candidaturas", "Acompanhe tudo o que você já enviou.")
 
-# ── Métricas ──────────────────────────────────────────────────────────────────
-# Cada uma diz o que conta. "Total" sozinho misturava candidatura enviada,
-# documento preparado e tentativa que falhou — números de naturezas diferentes
-# somados sob um rótulo que não explicava nada.
+# ── Funil ─────────────────────────────────────────────────────────────────────
+# Manual por enquanto: você marca a resposta que obteve, e o número que o
+# projeto nunca teve — de quantas fui chamado? — passa a existir. A leitura
+# por e-mail continua sendo o destino (`jobapplier/desfecho.py`); quando
+# chegar, conta na mesma tabela.
 
-#: Vocabulário novo + legado: linhas antigas do banco continuam contando.
-GRUPOS = {
-    "enviadas": ("enviada_confirmada", "enviada"),
-    # Só o vocabulário atual. `perguntas_pendentes` é legado da régua antiga —
-    # 165 linhas de agosto — e contá-lo como "aguardando ação sua" punha 168 no
-    # topo da página: a lista de afazeres de volta, com outro nome. As linhas
-    # continuam na tabela, com o status delas.
-    "revisao": ("revisao_manual",),
-    "preparadas": ("simulada",),
-    "falhas": ("falha_automacao", "erro"),
-}
+funil = acompanhamento.resumo()
+partes = [f"**{funil.enviadas} enviadas**"]
+if funil.com_resposta:
+    partes.append(f"{funil.com_resposta} com resposta")
+if funil.entrevistas:
+    partes.append(f"{funil.entrevistas} entrevista{'s' if funil.entrevistas != 1 else ''}")
+if funil.ofertas:
+    partes.append(f"{funil.ofertas} oferta{'s' if funil.ofertas != 1 else ''}")
+if funil.recusas:
+    partes.append(f"{funil.recusas} recusa{'s' if funil.recusas != 1 else ''}")
+partes.append(f"{funil.aguardando} aguardando retorno")
+st.markdown(" · ".join(partes))
 
 with get_session() as session:
-    contagem = {
-        nome: (session.query(func.count(Candidatura.id))
-               .filter(Candidatura.status.in_(codigos)).scalar() or 0)
-        for nome, codigos in GRUPOS.items()
-    }
-    aprovadas_count = (session.query(func.count(Vaga.id))
-                       .filter(Vaga.status == "aprovada").scalar() or 0)
+    atencao = (session.query(func.count(Candidatura.id))
+               .filter(Candidatura.status == "revisao_manual").scalar() or 0)
+if atencao:
+    st.markdown(f"**{atencao} precisa{'m' if atencao != 1 else ''} de atenção** — "
+                "confirme uma informação ou verifique se o envio saiu. Estão "
+                "marcadas como *Envio não confirmado* no histórico.")
 
-# Dois números, não quatro: "enviadas" e "aguardando alguma ação sua" são os
-# que mudam uma decisão. "Preparadas" e "falhas técnicas" continuam na tabela,
-# como filtro; a aderência ATS média era nível técnico e saiu da tela.
-#
-# Honesto sobre o limite: o sistema ainda não lê respostas por e-mail, então
-# não sabe se você foi chamado. Fingir "em processo / entrevista" com colunas
-# vazias seria uma falsa sensação de produto completo.
-m1, m2 = st.columns(2)
-with m1:
-    _ui.metrica("Enviadas", contagem["enviadas"], "confirmadas pela plataforma")
-with m2:
-    _ui.metrica("Aguardando alguma ação sua", contagem["revisao"],
-                "pergunta em branco ou envio sem prova",
-                destaque=bool(contagem["revisao"]))
-st.caption("Ainda não identificamos respostas a candidaturas enviadas — o "
-           "acompanhamento por e-mail é o próximo passo do produto.")
+# ── O que aconteceu com cada uma ─────────────────────────────────────────────
+# Um seletor por candidatura enviada. Mudar grava na hora; "sem resposta"
+# desfaz. É a única contabilidade que pede que você volte à tela — e ela
+# rende algo: o funil deixa de morrer em "enviada".
 
-# ── Ação principal ────────────────────────────────────────────────────────────
-# Leva à revisão do que está pronto, não a um envio em massa sem contexto.
+_ui.secao("O que aconteceu com cada uma")
 
-if aprovadas_count:
-    with st.container(border=True):
-        esq, dir_ = st.columns([2.6, 1], vertical_alignment="center")
-        with esq:
-            st.markdown(
-                f"**{aprovadas_count} vagas aprovadas** aguardam preparação de "
-                "documentos. Depois disso, você revisa e envia."
-            )
-        with dir_:
-            st.page_link("pages/5_Aplicar.py", label="Ir para a revisão",
-                         icon=":material/rate_review:", use_container_width=True)
+with get_session() as session:
+    enviadas = (session.query(Vaga.id, Vaga.empresa, Vaga.titulo)
+                .filter(Vaga.status.in_(acompanhamento.ENVIADAS))
+                .order_by(Vaga.id.desc()).all())
+desfechos = acompanhamento.por_vaga([v[0] for v in enviadas])
+
+OPCOES = [acompanhamento.SEM_RESPOSTA, "recebida", "resposta", "entrevista",
+          "oferta", "recusa"]
+_rotulo = {acompanhamento.SEM_RESPOSTA: acompanhamento.ROTULOS[None]}
+_rotulo.update({d.value: r for d, r in acompanhamento.ROTULOS.items() if d})
+
+
+def _marcar(vaga_id: int, chave: str) -> None:
+    acompanhamento.registrar(vaga_id, st.session_state[chave])
+
+
+if not enviadas:
+    st.caption("Nenhuma candidatura enviada ainda.")
+for vaga_id, empresa, titulo in enviadas:
+    atual = desfechos.get(vaga_id)
+    chave = f"desfecho_{vaga_id}"
+    esq, dir_ = st.columns([3, 2], vertical_alignment="center")
+    with esq:
+        st.markdown(f"**{empresas.nome_exibicao(empresa) or empresa}** — "
+                    f"{fila.titulo_exibicao(titulo)}")
+    with dir_:
+        st.selectbox(
+            "Resposta obtida", OPCOES,
+            index=OPCOES.index(atual.value) if atual else 0,
+            format_func=lambda c: _rotulo[c], key=chave,
+            label_visibility="collapsed", on_change=_marcar, args=(vaga_id, chave),
+        )
 
 # ── Filtros ───────────────────────────────────────────────────────────────────
 
@@ -139,7 +148,7 @@ with get_session() as session:
 
 if not registros:
     _ui.vazio("Nenhuma candidatura com esses filtros",
-              "Prepare documentos no Dashboard e revise as vagas para começar.")
+              "Revise as vagas em Revisar para começar.")
     st.stop()
 
 st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''} "
@@ -151,10 +160,10 @@ st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''} "
 st.dataframe(
     [
         {
-            "Vaga": r["titulo"] or "—",
-            # Slug técnico ("quintoandar") não é nome de empresa na tela.
-            "Empresa": (r["empresa"] or "—").title(),
-            "Plataforma": (r["plataforma"] or "").title(),
+            "Vaga": fila.titulo_exibicao(r["titulo"]) or "—",
+            "Empresa": empresas.nome_exibicao(r["empresa"]) or (r["empresa"] or "—"),
+            # Plataforma é nível 3: fica no detalhe. Na tabela, o que decide é
+            # vaga, empresa, status e quando.
             "Status": vocab.de_candidatura(r["status"]).rotulo,
             "Data": r["criado_em"],
             "Abrir": r["link"] or None,
