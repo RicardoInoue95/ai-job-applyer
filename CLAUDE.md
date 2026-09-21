@@ -99,6 +99,99 @@ Revisão em `ui/pages/6_Respostas.py` — memória só é aceitável se for revi
 Esvaziar uma resposta **apaga** a entrada; gravar `""` faria o banco responder
 nada em todo formulário seguinte, em silêncio.
 
+### Currículo manuscrito por vaga
+
+`data/dossies/<vaga_id>/curriculo.json` e `carta.txt` — `jobapplier/manuscrito.py`.
+É o terceiro jeito de gerar o dossiê, ao lado do modelo e da reordenação
+determinística: alguém lê o anúncio e escreve resumo, bullets e ordem de
+tecnologias para **aquela** vaga. O usuário prefere que isso seja feito numa
+sessão de assistente (créditos da assinatura), não por chave de API.
+
+Vale nos dois geradores — `dossie.montar` (baralho) e `run_applications`
+(envio) — porque a leitura mora em `optimize()` e `cover_letter.generate()`,
+não em quem chama. E passa pela **mesma trava da invariante 3**:
+`conferir_fatos` compara empresa, cargo, data, formação, certificação, contato
+e o conjunto de tecnologias com o base; qualquer divergência levanta e o dossiê
+falha fechado. Mão humana inventa tecnologia com a mesma facilidade que um
+modelo. Sem a pasta, nada muda.
+
+### Análise do perfil do LinkedIn
+
+`jobapplier/perfil_linkedin.py`, endpoint `POST /perfil_linkedin`, seção em
+Configurações → LinkedIn. O perfil chega pela extensão (`extensao/linkedin.js`),
+que só carrega em `linkedin.com/in/*` e só lê quando **você clica** em "Analisar
+meu perfil" — nada abre o LinkedIn, nem com a sessão salva (invariante 6). A API
+recusa perfil cujo slug não seja o de `resume.json.linkedin` (403, sem gravar).
+
+A comparação tem três frentes, nesta ordem: **fato** contra o mestre (cargo,
+empresa, data, formação — prioridade 1), **vocabulário** contra a fila (tecnologia
+que as vagas `aprovada`/`pronta_envio_manual` pedem, o mestre tem e o perfil não
+cita — **um** ajuste só com a lista, não um cartão por tecnologia) e a **régua do
+tutorial** (`docs/TUTORIAL_LINKEDIN.md`). Tecnologia pedida pelo mercado e ausente
+do mestre vira `lacuna`, nunca sugestão: o sistema não afirma o que o currículo
+não sustenta (invariante 3).
+
+Os seletores de `linkedin.js` seguem a estrutura conhecida da página (âncoras
+`#about`/`#experience`/`#skills`, `span[aria-hidden]`) e a fixture de teste é
+**sintética** — captura real traria dado pessoal para o repositório. O aviso da
+extensão diz o que leu ("título ✓ · 2 experiências · 0 competências"); leitura
+vazia é o sinal para revisar os seletores. A lista completa de competências só
+existe em `/in/<slug>/details/skills/`: visitar essa página antes guarda a lista,
+e o envio do perfil a usa.
+
+### Catálogo de erros e diagnóstico
+
+`jobapplier/erros.py` — todo erro tem **código estável** (`vaga-ambigua`),
+título, detalhe e **ação obrigatória**. A API responde sempre
+`{"erro": {"codigo", "titulo", "detalhe", "acao", "auto", "familia"}}`, e
+`tests/unit/test_erros.py` falha se `api.py` voltar a escrever `{"erro": "texto"}`.
+A extensão e o painel renderizam do mesmo objeto; os únicos textos de erro que
+nascem em JavaScript são os dois que o backend não pode informar — service
+worker mudo e API fora do ar —, e o teste garante que só eles.
+
+Por que: as mesmas falhas apareciam como string solta na API, texto no aviso da
+extensão, `st.error` em 32 pontos das páginas e traceback no terminal. Nenhuma
+era identificável por programa, então nada podia ser tratado sozinho.
+
+`jobapplier/diagnostico.py` — `/saude` devolve o estado inteiro: banco, schema
+em head, currículo, config, provedor de IA, idade da coleta. Cada falha carrega
+um erro do catálogo. **Devolve 200 mesmo com bloqueio**: a resposta é o
+diagnóstico, e um 503 faria a extensão tratar como "API fora" justamente quando
+ela tem o que dizer. Toda checagem é barata e sem efeito — roda a cada abertura
+de página. Aviso não derruba o estado; só bloqueio.
+
+### Fila do dia e painel da extensão
+
+`jobapplier/fila.py` — a regra da fila vivia dentro de `ui/pages/5_Aplicar.py`
+e o painel precisava da mesma; agora é serviço, e webapp e painel renderizam.
+`do_dia()` devolve **cinco** vagas, só as que já têm currículo pronto: 412
+cartões não são escolha, e oferecer vaga sem dossiê é oferecer trabalho.
+`decidir()` só aceita o mapa `DECISOES` — POST com status arbitrário poderia
+gravar `enviada_confirmada` sem prova e `guard.ja_candidatado` bloquearia a vaga
+para sempre.
+
+`painel/` — React + Vite + TypeScript. `npm run build` gera `extensao/painel/`,
+que o `manifest.json` carrega como **side panel** do Chrome (`sidePanel`, abre
+no clique do ícone). O painel é página da extensão, não da vaga: as
+`host_permissions` dispensam CORS e ele fala com `127.0.0.1:8787` direto — ao
+contrário de `conteudo.js`, que precisa do service worker por causa do CSP do
+site. Tokens de cor copiados de `ui/_ui.py`: é o mesmo produto.
+
+Rotas que o painel consome: `/saude`, `/fila` (`tudo=1` para o acervo),
+`/vaga/{id}/dossie`, `/vaga/{id}/curriculo`, `/vaga/{id}/decisao`.
+
+Lição do primeiro build: a API em execução era anterior às rotas novas e
+respondeu 404 sem corpo do catálogo; o cliente chamou isso de "API fora" ao lado
+de um ponto verde que acabara de falar com ela. Resposta sem `erro.codigo` agora
+é `contrato-desconhecido` — versão diferente —, não "não está rodando".
+
+`ui/pages/7_Documentos.py` + `jobapplier/documentos.py` — todo currículo e
+carta em disco (593 e 566), com busca. **Tabela, não cartões**: a primeira
+versão punha três documentos por tela. A fonte é o disco, porque só 351 dos 593
+têm linha em `candidaturas` — o dossiê é gerado para o baralho sem candidatura.
+Medido na tela: no `st.dataframe`, clicar no texto seleciona a *célula*; quem
+seleciona a linha é a caixa da primeira coluna, e a legenda diz isso.
+
 ### Identificar a candidatura aberta no navegador
 
 A URL do formulário da Gupy é `/candidates/applications/<id>/steps/<id>` e **não
@@ -128,6 +221,33 @@ Um padrão só, para toda plataforma: `coleta.empresas_<plataforma>` (slugs) e
 `ConfigManager.empresas(p)` / `.keywords(p)` — não invente chave nova por
 plataforma; foi assim que `gupy.search_keywords` e `linkedin.search_queries`
 divergiram do resto.
+
+**`coleta.localizacoes_alvo` são as cidades onde você aceita presencial ou
+híbrido**, e é lida por `agents/extracao.locais_alvo()`. Até 21/09/2026 era
+chave morta: a tela de Configurações gravava e ninguém lia.
+
+Quem decidia era `_pontuar_localizacao`, procurando a cidade do candidato em
+qualquer posição da localização da vaga — e como ele mora em "São Paulo", que é
+também o nome do **estado**, toda vaga presencial do interior casava. Franca
+(400 km) pontuava 10 de 10, igual à capital. Parecia preferência configurada e
+era coincidência de substring; um dia alguém "corrigiria" o casamento e as vagas
+do interior sumiriam da fila sem ninguém entender por quê.
+
+Agora a comparação é pela **cidade** — primeiro campo de `Cidade, Estado, País`
+— contra a lista declarada mais a cidade do currículo. Presencial em cidade não
+declarada zera; híbrido leva 40%. Remoto ignora a lista. `Remoto`, `Remote` e
+`Brasil` continuam na lista por causa da UI, e `locais_alvo()` os descarta:
+modalidade é tratada antes e não é cidade.
+
+**Texto livre usa a string inteira**, não o primeiro campo: `Brazil (São Paulo -
+Hybrid)` e `Sao Paulo` não têm campo de estado para confundir, e são 100 das 410
+vagas da fila. Exigir o formato de três campos as esconderia todas.
+
+**A lista tem de incluir a região metropolitana**, não só o interior. A primeira
+versão dela respondia "é interior?" em vez de "ele consegue ir?", e 18 vagas da
+fila iriam a zero — Barueri/Alphaville, Guarulhos, São Bernardo, Taboão,
+Santana de Parnaíba —, todas mais perto da casa dele que Campinas. Uma delas
+estava no lote já preparado para envio.
 
 ## Documentação
 
@@ -227,6 +347,10 @@ python run.py                                   # Postgres + Streamlit + orquest
 # NÃO rode 'ruff format .': reformataria ~48 arquivos, desfazendo alinhamentos
 # intencionais (listas de slugs agrupadas por comentário, dicts alinhados). O
 # formatter não é aplicado neste projeto e não está no CI.
+
+# ── Painel da extensão (React) ───────────────────────────────────────────────
+cd painel; npm install; npm run build          # gera extensao/painel/
+                                                # depois: recarregar em chrome://extensions
 
 # ── Banco ────────────────────────────────────────────────────────────────────
 docker compose up postgres -d
@@ -331,6 +455,10 @@ jobapplier/            domínio — nada de UI aqui
   idioma.py            idioma da vaga: escolhe o mestre pt/en
   aprendizado.py       banco de respostas: o que você digitou uma vez, repete
   api.py               API local (127.0.0.1) que a extensão de navegador chama
+  erros.py             catálogo: código estável, mensagem e ação, para toda tela
+  diagnostico.py       /saude — banco, schema, currículo, config, coleta
+  fila.py              a fila do dia e a decisão sobre uma vaga (webapp e painel)
+  documentos.py        todo currículo e carta em disco, ligados à vaga pelo nome
   collectors/          Greenhouse, Lever, Gupy (APIs REST, sem browser)
   filters/             4A pré-normalização, 4B pós-normalização
   agents/              normalizer, scorer, resume_optimizer, cover_letter
@@ -342,6 +470,8 @@ jobapplier/            domínio — nada de UI aqui
   notifications/       relatório diário por e-mail
   database/            models, repositórios, migrations Alembic
   config/              config.json e segredos
+painel/                React + Vite: painel lateral do Chrome; build em extensao/painel/
+extensao/              content scripts, service worker e o painel construído
 ui/                    Streamlit — descartável por design
   _bootstrap.py        põe a raiz no sys.path; importe primeiro em cada página
   app.py, pages/

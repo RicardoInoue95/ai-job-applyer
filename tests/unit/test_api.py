@@ -185,3 +185,136 @@ def test_id_do_passo_nao_e_confundido_com_o_da_candidatura():
     plataforma, ref = api.referencia_externa(
         "https://x.gupy.io/candidates/applications/111/steps/222/curriculum")
     assert (plataforma, ref) == ("gupy", "111")
+
+
+# ── Perfil do LinkedIn ────────────────────────────────────────────────────────
+# A extensão lê o perfil na aba do candidato e manda para cá. A API é quem
+# garante que é o perfil DELE: a permissão do content script cobre `/in/*`
+# inteiro, e a única barreira contra guardar dado de terceiro é esta.
+
+_MESTRE_LI = {
+    "linkedin": "https://www.linkedin.com/in/fulano-teste/",
+    "resumo_profissional": "Resumo.",
+    "experiencias": [{"empresa": "Acme", "cargo": "Coordenador de Dados",
+                      "data_inicio": "08/2025", "data_fim": None}],
+    "formacao": [], "tecnologias": ["SQL", "Python"],
+}
+
+
+@pytest.fixture
+def perfil_isolado(monkeypatch, tmp_path):
+    from jobapplier import perfil_linkedin as mod
+
+    monkeypatch.setattr(api, "_resume", lambda: _MESTRE_LI)
+    monkeypatch.setattr(mod, "ARQUIVO", tmp_path / "perfil_linkedin.json")
+    # Sem banco: o mercado vem pronto.
+    monkeypatch.setattr(mod, "mercado", lambda sessao, limite=15: [("SQL", 10), ("Python", 8)])
+
+    class _Sessao:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("jobapplier.database.connection.get_session", lambda: _Sessao())
+    return mod
+
+
+def test_perfil_de_terceiro_e_403_e_nao_grava(cliente, perfil_isolado):
+    r = cliente.post("/perfil_linkedin", json={
+        "url": "https://www.linkedin.com/in/outra-pessoa/",
+        "perfil": {"titulo": "x"}})
+    assert r.status_code == 403
+    assert not perfil_isolado.ARQUIVO.exists()
+
+
+def test_perfil_ausente_e_400(cliente, perfil_isolado):
+    r = cliente.post("/perfil_linkedin", json={"url": _MESTRE_LI["linkedin"]})
+    assert r.status_code == 400
+
+
+def test_meu_perfil_e_analisado_e_guardado(cliente, perfil_isolado):
+    perfil = {"titulo": "", "sobre": "", "competencias": ["SQL"],
+              "experiencias": [{"cargo": "Coordenador de Dados", "empresa": "Acme",
+                                "periodo": "ago de 2025 - o momento"}],
+              "formacao": []}
+    r = cliente.post("/perfil_linkedin", json={
+        "url": "https://www.linkedin.com/in/Fulano-Teste?locale=pt", "perfil": perfil})
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["cobertura"] == [1, 2]
+    areas = {a["area"] for a in corpo["ajustes"]}
+    assert {"titulo", "sobre"} <= areas
+    assert perfil_isolado.ARQUIVO.exists()
+    assert perfil_isolado.carregar()["perfil"]["competencias"] == ["SQL"]
+
+
+# ── Fila e decisão ────────────────────────────────────────────────────────────
+# O painel da extensão e o webapp leem daqui. O contrato importa mais que os
+# dados: dois clientes renderizando a mesma coisa só ficam iguais se a forma
+# da resposta for uma.
+
+def test_fila_devolve_poucas_por_padrao(cliente, monkeypatch):
+    """412 cartões não são uma escolha. O padrão é curto de propósito; o acervo
+    inteiro sai só com `tudo=1`."""
+    from jobapplier import fila as mod
+
+    chamadas = {}
+    monkeypatch.setattr(mod, "do_dia", lambda q=5: chamadas.setdefault("do_dia", q) and [])
+    monkeypatch.setattr(mod, "listar",
+                        lambda **k: chamadas.setdefault("listar", k) and [])
+    cliente.get("/fila")
+    assert "do_dia" in chamadas and "listar" not in chamadas
+
+
+def test_fila_com_tudo_usa_o_acervo(cliente, monkeypatch):
+    from jobapplier import fila as mod
+
+    visto = {}
+
+    def _listar(**kwargs):
+        visto.update(kwargs)
+        return []
+
+    monkeypatch.setattr(mod, "listar", _listar)
+    monkeypatch.setattr(mod, "do_dia", lambda q=5: pytest.fail("usou a fila curta"))
+    r = cliente.get("/fila", params={"tudo": "1", "score_min": "70"})
+    assert r.status_code == 200
+    assert visto["score_min"] == 70
+
+
+def test_decisao_so_aceita_as_conhecidas(cliente, monkeypatch):
+    """Aceitar status arbitrário deixaria um POST gravar 'enviada_confirmada'
+    sem prova, e `ja_candidatado` bloquearia a vaga para sempre."""
+    from jobapplier import fila as mod
+
+    monkeypatch.setattr(mod, "decidir", mod.decidir)  # sem stub: valida de fato
+    r = cliente.post("/vaga/1/decisao", json={"decisao": "enviada_confirmada"})
+    assert r.status_code == 400
+    assert r.json()["erro"]["codigo"]
+
+
+def test_decisao_conhecida_chega_ao_servico(cliente, monkeypatch):
+    from jobapplier import fila as mod
+
+    visto = {}
+
+    def _decidir(vaga_id, decisao):
+        visto.update(vaga_id=vaga_id, decisao=decisao)
+        return {"ok": True, "vaga_id": vaga_id, "de": "aprovada", "para": "adiada"}
+
+    monkeypatch.setattr(mod, "decidir", _decidir)
+    r = cliente.post("/vaga/42/decisao", json={"decisao": "adiar"})
+    assert r.status_code == 200
+    assert visto == {"vaga_id": 42, "decisao": "adiar"}
+
+
+def test_dossie_de_vaga_inexistente_usa_o_catalogo(cliente, monkeypatch):
+    from jobapplier import fila as mod
+
+    monkeypatch.setattr(mod, "dossie", lambda vaga_id: {})
+    r = cliente.get("/vaga/999999/dossie")
+    assert r.status_code == 404
+    assert r.json()["erro"]["codigo"] == "vaga-inexistente"
+    assert r.json()["erro"]["acao"]

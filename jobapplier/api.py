@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import logging
 
-from jobapplier import paths
+from jobapplier import erros, paths
 
 logger = logging.getLogger(__name__)
 
@@ -220,9 +220,16 @@ def _resolver(sessao, url: str, sinais: dict):
 
 
 async def saude(request):
+    """Está tudo de pé? A extensão e a interface leem daqui.
+
+    Devolve 200 mesmo com bloqueio: a resposta É o diagnóstico, e um 503 faria a
+    extensão tratar como "API fora" justamente quando ela tem o que dizer.
+    """
     from starlette.responses import JSONResponse
 
-    return JSONResponse({"ok": True, "versao": 1})
+    from jobapplier import diagnostico
+
+    return JSONResponse(diagnostico.verificar().como_dict())
 
 
 async def identificar(request):
@@ -279,9 +286,8 @@ async def responder(request):
             url, sinais.get("referrer", "—"), sinais.get("titulo", "—"),
             len(opcoes))
         if opcoes:
-            return JSONResponse({"erro": "vaga ambígua", "candidatas": opcoes},
-                                status_code=409)
-        return JSONResponse({"erro": "vaga desconhecida"}, status_code=404)
+            return erros.resposta(erros.VAGA_AMBIGUA, 409, candidatas=opcoes)
+        return erros.resposta(erros.VAGA_DESCONHECIDA, 404)
 
     normalizado = vaga.normalizado_json or {}
     if isinstance(normalizado, str):
@@ -378,23 +384,23 @@ async def vincular(request):
     url = corpo.get("url", "")
     vaga_id = corpo.get("vaga_id")
     if referencia_externa(url) is None:
-        return JSONResponse({"erro": "url sem id de candidatura"}, status_code=400)
+        return erros.resposta(erros.URL_SEM_CANDIDATURA, 400)
 
     with get_session() as sessao:
         if sessao.get(Vaga, vaga_id) is None:
-            return JSONResponse({"erro": "vaga inexistente"}, status_code=404)
+            return erros.resposta(erros.VAGA_INEXISTENTE, 404, f"(id {vaga_id})")
         _gravar_vinculo(sessao, url, int(vaga_id), "voce")
     return JSONResponse({"ok": True, "vaga_id": vaga_id})
 
 
 async def curriculo(request):
     """Serve o PDF daquela vaga, para a extensão anexar."""
-    from starlette.responses import FileResponse, JSONResponse
+    from starlette.responses import FileResponse
 
     vaga_id = request.path_params["vaga_id"]
     pdfs = sorted(paths.RESUMES.glob(f"resume_*_{vaga_id}.pdf"))
     if not pdfs:
-        return JSONResponse({"erro": "sem currículo gerado"}, status_code=404)
+        return erros.resposta(erros.DOSSIE_AUSENTE, 404, f"(vaga {vaga_id})")
     return FileResponse(pdfs[0], filename=pdfs[0].name,
                         media_type="application/pdf")
 
@@ -416,7 +422,7 @@ async def marcar_enviada(request):
     vaga_id = request.path_params["vaga_id"]
     with get_session() as sessao:
         if sessao.get(Vaga, vaga_id) is None:
-            return JSONResponse({"erro": "vaga inexistente"}, status_code=404)
+            return erros.resposta(erros.VAGA_INEXISTENTE, 404, f"(id {vaga_id})")
         # REVISAO_MANUAL e não ENVIADA_CONFIRMADA: quem afirma é o candidato, e
         # o sistema não viu a página de confirmação. Falso "enviada" é pior que
         # erro — bloqueia a vaga para sempre.
@@ -428,6 +434,95 @@ async def marcar_enviada(request):
             erro="enviada por você pela extensão; sem prova na página")
         sessao.get(Vaga, vaga_id).status = "enviada_manual"
     return JSONResponse({"ok": True})
+
+
+async def perfil_linkedin(request):
+    """Recebe o SEU perfil, lido pela extensão na sua aba, e devolve a análise.
+
+    Só o seu: a extensão tem permissão em `/in/*` inteiro porque não há como
+    limitá-la a um slug, então a checagem é aqui, contra `resume.json.linkedin`.
+    Perfil de terceiro devolve 403 e não grava nada — o sistema não guarda dado
+    de outra pessoa nem por acidente.
+
+    O perfil bruto fica em `data/perfil_linkedin.json` para a página
+    Configurações → LinkedIn reexibir a análise sem nova leitura.
+    """
+    from starlette.responses import JSONResponse
+
+    from jobapplier import perfil_linkedin as mod
+    from jobapplier.database.connection import get_session
+
+    corpo = await request.json()
+    url = str(corpo.get("url") or "")
+    perfil = corpo.get("perfil")
+    if not isinstance(perfil, dict):
+        return erros.resposta(erros.PERFIL_AUSENTE, 400)
+    mestre = _resume()
+    if not mod.e_meu_perfil(url, mestre):
+        return erros.resposta(erros.PERFIL_DE_TERCEIRO, 403)
+
+    registro = mod.gravar(perfil, url)
+    with get_session() as sessao:
+        mercado = mod.mercado(sessao)
+    analise = mod.analisar(perfil, mestre, mercado, url=url,
+                           lido_em=registro["lido_em"])
+    logger.info("Perfil do LinkedIn analisado: %d ajuste(s), cobertura %s.",
+                len(analise.ajustes), analise.cobertura)
+    return JSONResponse(analise.como_dict())
+
+
+async def listar_fila(request):
+    """A fila do dia, ou o acervo com filtro. É o que o painel abre mostrando.
+
+    `tudo=1` devolve a fila inteira; sem ele, poucas e as melhores. O padrão é
+    o curto de propósito: 412 cartões não são uma escolha (ver `jobapplier/fila.py`).
+    """
+    from starlette.responses import JSONResponse
+
+    from jobapplier import fila as mod
+
+    params = request.query_params
+    if params.get("tudo"):
+        itens = mod.listar(score_min=int(params.get("score_min") or 0),
+                           limite=int(params.get("limite") or 100))
+    else:
+        itens = mod.do_dia(int(params.get("limite") or mod.DO_DIA))
+    return JSONResponse({"vagas": [i.como_dict() for i in itens]})
+
+
+async def dossie_da_vaga(request):
+    """Carta, perguntas do formulário e o que mais o painel mostra ao lado."""
+    from starlette.responses import JSONResponse
+
+    from jobapplier import fila as mod
+
+    vaga_id = request.path_params["vaga_id"]
+    dados = mod.dossie(vaga_id)
+    if not dados:
+        return erros.resposta(erros.VAGA_INEXISTENTE, 404, f"(id {vaga_id})")
+    return JSONResponse(dados)
+
+
+async def decidir_vaga(request):
+    """Enviei / descartar / adiar. Toda decisão tira a vaga da fila.
+
+    O corpo traz a decisão, não o status: aceitar status arbitrário deixaria um
+    POST gravar 'enviada_confirmada' sem prova nenhuma, e `ja_candidatado`
+    bloquearia a vaga para sempre (invariante 2).
+    """
+    from starlette.responses import JSONResponse
+
+    from jobapplier import fila as mod
+
+    vaga_id = request.path_params["vaga_id"]
+    corpo = await request.json()
+    try:
+        resultado = mod.decidir(vaga_id, str(corpo.get("decisao") or ""))
+    except ValueError as exc:
+        return erros.resposta(erros.VAGA_INEXISTENTE, 400, f"({exc})")
+    if not resultado.get("ok"):
+        return erros.resposta(erros.VAGA_INEXISTENTE, 404, f"(id {vaga_id})")
+    return JSONResponse(resultado)
 
 
 def criar_app():
@@ -443,6 +538,10 @@ def criar_app():
         Route("/vincular", vincular, methods=["POST"]),
         Route("/vaga/{vaga_id:int}/curriculo", curriculo),
         Route("/vaga/{vaga_id:int}/enviada", marcar_enviada, methods=["POST"]),
+        Route("/perfil_linkedin", perfil_linkedin, methods=["POST"]),
+        Route("/fila", listar_fila),
+        Route("/vaga/{vaga_id:int}/dossie", dossie_da_vaga),
+        Route("/vaga/{vaga_id:int}/decisao", decidir_vaga, methods=["POST"]),
     ])
     app.add_middleware(
         CORSMiddleware, allow_origin_regex=r"https://([\w-]+\.)*"

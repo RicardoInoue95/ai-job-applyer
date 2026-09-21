@@ -45,9 +45,11 @@ CANDIDATURAS = st.Page("pages/4_Candidaturas.py", title="Candidaturas",
                        icon=":material/send:", url_path="candidaturas")
 APLICAR = st.Page("pages/5_Aplicar.py", title="Revisar e aplicar",
                   icon=":material/rate_review:", url_path="revisar")
+DOCUMENTOS = st.Page("pages/7_Documentos.py", title="Currículos e cartas",
+                     icon=":material/description:", url_path="documentos")
 
 # Sem configuração completa não há o que navegar: a única página é o wizard.
-paginas = ([DASHBOARD, VAGAS, APLICAR, CANDIDATURAS, CONFIGURACOES]
+paginas = ([DASHBOARD, VAGAS, APLICAR, CANDIDATURAS, DOCUMENTOS, CONFIGURACOES]
            if configurado else [CONFIGURACOES])
 
 # ── Identidade ───────────────────────────────────────────────────────────────

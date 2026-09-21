@@ -72,3 +72,10 @@ docs/_substituidos/
 docs/*.docx
 tests/unit/test_prompts.py
 docs/TUTORIAL_LINKEDIN.md
+
+# Painel React: dependências e build. O build sai em extensao/painel/ e é
+# regenerado por `npm run build` em painel/ — versioná-lo faria todo commit de
+# front-end carregar 150 kB de bundle.
+painel/node_modules/
+extensao/painel/
+painel/tsconfig.tsbuildinfo
