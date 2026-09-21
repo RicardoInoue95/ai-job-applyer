@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, FalhaApi, type Dossie, type Vaga } from "./api";
+import { api, FalhaApi, type Decisao, type Dossie, type Vaga } from "./api";
 import { Alerta, Estado } from "./Estado";
+import { Inbox } from "./Inbox";
 
 /** O painel tem dois estados: a fila do dia, e uma vaga aberta.
  *
@@ -38,43 +39,51 @@ export default function App() {
     );
   }
 
+  // Decidir tira a vaga da lista local na hora: esperar o backend e recarregar
+  // faria a inbox piscar a cada decisão, e a próxima vaga demoraria a aparecer.
+  const decidir = useCallback(async (vagaId: number, decisao: Decisao) => {
+    await api.decidir(vagaId, decisao);
+    setVagas((atual) => (atual ?? []).filter((v) => v.id !== vagaId));
+  }, []);
+
   return (
     <>
-      <h1>AI Job Applier</h1>
+      <div className="topo">
+        <h1>AI Job Applier</h1>
+        <button className="discreto" onClick={() => setTudo(!tudo)}>
+          {tudo ? "Só o que precisa de você" : "Ver a fila inteira"}
+        </button>
+      </div>
       <p className="sub">
-        {tudo ? "Toda a fila." : "As melhores de hoje, com o dossiê pronto."}
+        {tudo
+          ? "Toda a fila, da melhor para a pior."
+          : vagas && vagas.length
+            ? `${vagas.length} precisam de você. A IA já preparou tudo.`
+            : "A IA encontrou e preparou. Falta a sua decisão."}
       </p>
       <Estado />
       {erro && <Alerta erro={erro.erro} />}
 
       {vagas === null && <div className="vazio">Carregando…</div>}
-      {vagas?.length === 0 && !erro && (
-        <div className="vazio">
-          Nada esperando por você.
-          <br />
-          Deixe o coletor rodando e volte mais tarde.
-        </div>
-      )}
 
-      {vagas?.map((v) => (
+      {vagas && !tudo && <Inbox vagas={vagas} aoDecidir={decidir} />}
+
+      {vagas && tudo && vagas.length === 0 && !erro && (
+        <div className="vazio">Nada na fila.</div>
+      )}
+      {vagas && tudo && vagas.map((v) => (
         <div key={v.id} className="cartao" onClick={() => setAberta(v.id)}
              style={{ cursor: "pointer" }}>
           <div className="empresa">{v.empresa_exibicao}</div>
           <div className="vaga">{v.titulo}</div>
           <div className="meta">
-            <span className="selo">{v.score.toFixed(0)}% de aderência</span>{" "}
+            <span className="selo">{v.aderencia?.titulo ?? `${v.score.toFixed(0)}%`}</span>{" "}
             {v.plataforma} · {v.modalidade || "modalidade não informada"}
             {v.localizacao ? ` · ${v.localizacao}` : ""}
             {!v.tem_curriculo && <> · <span className="selo neutro">sem dossiê</span></>}
           </div>
         </div>
       ))}
-
-      {vagas && vagas.length > 0 && (
-        <button style={{ width: "100%", marginTop: 4 }} onClick={() => setTudo(!tudo)}>
-          {tudo ? "Ver só as melhores de hoje" : "Ver a fila inteira"}
-        </button>
-      )}
     </>
   );
 }

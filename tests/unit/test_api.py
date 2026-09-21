@@ -255,17 +255,21 @@ def test_meu_perfil_e_analisado_e_guardado(cliente, perfil_isolado):
 # dados: dois clientes renderizando a mesma coisa só ficam iguais se a forma
 # da resposta for uma.
 
-def test_fila_devolve_poucas_por_padrao(cliente, monkeypatch):
-    """412 cartões não são uma escolha. O padrão é curto de propósito; o acervo
-    inteiro sai só com `tudo=1`."""
+def test_fila_padrao_e_o_que_precisa_de_voce(cliente, monkeypatch):
+    """O painel percorre a mesma lista que o contador da barra do webapp conta:
+    excelentes com dossiê. O acervo inteiro só sai com `tudo=1`."""
     from jobapplier import fila as mod
 
     chamadas = {}
-    monkeypatch.setattr(mod, "do_dia", lambda q=5: chamadas.setdefault("do_dia", q) and [])
+    monkeypatch.setattr(mod, "precisam_de_voce",
+                        lambda: chamadas.setdefault("precisam", True) and [])
+    monkeypatch.setattr(mod, "corte_de_atencao", lambda: 85)
     monkeypatch.setattr(mod, "listar",
                         lambda **k: chamadas.setdefault("listar", k) and [])
-    cliente.get("/fila")
-    assert "do_dia" in chamadas and "listar" not in chamadas
+    r = cliente.get("/fila")
+    assert r.status_code == 200
+    assert r.json()["corte"] == 85
+    assert "precisam" in chamadas and "listar" not in chamadas
 
 
 def test_fila_com_tudo_usa_o_acervo(cliente, monkeypatch):

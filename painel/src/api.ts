@@ -27,6 +27,19 @@ export type Checagem = {
 
 export type Saude = { ok: boolean; versao: number; checagens: Checagem[] };
 
+/** Nível 1 da aderência: a conclusão, sem a evidência. */
+export type Nivel1 = { titulo: string; rotulo: string; porque: string; atencao: string };
+
+/** Nível 2: o que sustenta a conclusão. */
+export type Eixo = { nome: string; nota: number; maximo: number; fracao: number };
+export type Aderencia = Nivel1 & {
+  score: number;
+  eixos: Eixo[];
+  cobertas: string[];
+  faltam: string[];
+  eliminatorios: string[];
+};
+
 export type Vaga = {
   id: number;
   titulo: string;
@@ -40,6 +53,7 @@ export type Vaga = {
   status: string;
   tem_curriculo: boolean;
   tem_carta: boolean;
+  aderencia: Nivel1 | null;
 };
 
 export type Pergunta = {
@@ -53,6 +67,7 @@ export type Pergunta = {
 
 export type Dossie = {
   vaga: Vaga;
+  aderencia: Aderencia;
   carta: string;
   perguntas: Pergunta[];
   manuscrito: boolean;
@@ -60,6 +75,8 @@ export type Dossie = {
 };
 
 /** Erro com o objeto do catálogo junto, para a tela renderizar título e ação. */
+export type Decisao = "enviada" | "descartar" | "adiar" | "abrir";
+
 export class FalhaApi extends Error {
   constructor(readonly erro: ErroApi, readonly status: number) {
     super(erro.titulo);
@@ -106,11 +123,11 @@ async function chamar<T>(caminho: string, opcoes?: RequestInit): Promise<T> {
 
 export const api = {
   saude: () => chamar<Saude>("/saude"),
-  fila: (limite = 5) => chamar<{ vagas: Vaga[] }>(`/fila?limite=${limite}`),
+  fila: () => chamar<{ vagas: Vaga[]; corte: number }>("/fila"),
   acervo: (scoreMin = 0) =>
     chamar<{ vagas: Vaga[] }>(`/fila?tudo=1&limite=100&score_min=${scoreMin}`),
   dossie: (vagaId: number) => chamar<Dossie>(`/vaga/${vagaId}/dossie`),
-  decidir: (vagaId: number, decisao: "enviada" | "descartar" | "adiar") =>
+  decidir: (vagaId: number, decisao: Decisao) =>
     chamar<{ ok: boolean }>(`/vaga/${vagaId}/decisao`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

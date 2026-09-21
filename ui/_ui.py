@@ -381,18 +381,11 @@ def aderencia(score: float | None, com_barra: bool = True,
 
 
 def titulo_limpo(titulo: str | None) -> str:
-    """`12393045 - Engenheiro de Dados Pleno` → `Engenheiro de Dados Pleno`.
+    """Delega ao serviço: o painel da extensão e o webapp mostram o mesmo
+    título, e a regra mora em `jobapplier.fila.titulo_exibicao`."""
+    from jobapplier.fila import titulo_exibicao
 
-    Código de requisição no começo do título é identificador do ATS da
-    empresa, não cargo — e é o primeiro campo que o olho lê. Fica no detalhe,
-    onde a vaga é identificada por número mesmo.
-    """
-    import re
-
-    t = (titulo or "").strip()
-    # Só numeral de 4+ dígitos seguido de separador: "3 Analistas" não é
-    # código; "0731 - Analista" (Sicredi) e "12393045 - Engenheiro" são.
-    return re.sub(r"^\d{4,}\s*[-|:·]\s*", "", t) or t
+    return titulo_exibicao(titulo)
 
 
 def conclusao(a: dict | None, com_atencao: bool = True, so_titulo: bool = False) -> str:

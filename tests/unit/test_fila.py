@@ -45,6 +45,13 @@ def test_decisao_desconhecida_e_recusada_antes_do_banco():
         fila.decidir(1, "enviada_confirmada")
 
 
+def test_abrir_registra_sem_tirar_da_fila():
+    """"Abrir e candidatar" grava que o link foi aberto — não que a candidatura
+    saiu. A vaga continua na fila até "enviei" ou "não é para mim"."""
+    assert fila.DECISOES["abrir"] == "aberta"
+    assert "aberta" in fila.NA_FILA
+
+
 def test_mapa_de_decisoes_nunca_grava_status_de_prova():
     """'enviada' pela extensão vira `enviada_manual`, nunca um status que
     `guard.ja_candidatado` trate como confirmado sem prova."""
@@ -76,3 +83,15 @@ def test_precisam_de_voce_e_o_corte_de_confianca(monkeypatch):
     monkeypatch.setattr(fila, "listar", _listar)
     assert [i.id for i in fila.precisam_de_voce()] == [1]
     assert visto["score_min"] == 85
+
+
+@pytest.mark.parametrize("bruto, limpo", [
+    ("12393045 - Engenheiro de Dados Pleno", "Engenheiro de Dados Pleno"),
+    ("12473727 | Analista de Dados PL", "Analista de Dados PL"),
+    ("0731 - Analista de Dados - Ciclo", "Analista de Dados - Ciclo"),
+    ("3 Analistas de Dados", "3 Analistas de Dados"),
+    ("Analista de BI", "Analista de BI"),
+    ("", ""),
+])
+def test_titulo_exibicao_tira_o_codigo_do_ats(bruto, limpo):
+    assert fila.titulo_exibicao(bruto) == limpo

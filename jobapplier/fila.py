@@ -17,8 +17,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 #: Status que estão esperando por VOCÊ. `pendente` entra porque é possibilidade
-#: acessível baixando o corte — o score nunca rejeita (ver CLAUDE.md).
-NA_FILA = ("pronta_envio_manual", "aprovada", "pronta_para_revisao", "pendente")
+#: acessível baixando o corte — o score nunca rejeita (ver CLAUDE.md). `aberta`
+#: também: você abriu o link e não disse se enviou, então ela continua sua.
+NA_FILA = ("pronta_envio_manual", "aprovada", "pronta_para_revisao", "pendente",
+           "aberta")
 
 #: Quantas vagas o dia oferece por padrão. Cinco porque é quanto cabe numa
 #: sessão sem virar tarefa: o histórico do projeto é de 293 tentativas para 10
@@ -32,6 +34,10 @@ DECISOES = {
     "enviada": "enviada_manual",
     "descartar": "descartada_por_voce",
     "adiar": "adiada",
+    # "Abrir e candidatar": o painel abre o link E registra que você abriu. A
+    # vaga NÃO sai da fila — o que se sabe é que o link foi aberto, não que a
+    # candidatura saiu. Sair só com "enviei" ou "não é para mim".
+    "abrir": "aberta",
 }
 
 
@@ -50,17 +56,36 @@ class ItemFila:
     #: Documentos prontos, para o painel saber o que oferecer sem outra chamada.
     tem_curriculo: bool = False
     tem_carta: bool = False
+    #: Nível 1 da aderência (`jobapplier.aderencia`): título, por quê, atenção.
+    #: Vai junto para o cartão não precisar de uma segunda chamada por vaga.
+    aderencia: dict | None = None
 
     def como_dict(self) -> dict:
         return asdict(self)
 
 
-def _item(vaga, curriculos: set[int], cartas: set[int]) -> ItemFila:
-    from jobapplier import empresas
+def titulo_exibicao(titulo: str | None) -> str:
+    """`12393045 - Engenheiro de Dados Pleno` → `Engenheiro de Dados Pleno`.
 
+    Código de requisição no começo do título é identificador do ATS da
+    empresa, não cargo — e é o primeiro campo que o olho lê. Aqui e não na UI:
+    o painel da extensão e o webapp mostram o mesmo título.
+    """
+    import re
+
+    t = (titulo or "").strip()
+    # Só numeral de 4+ dígitos seguido de separador: "3 Analistas" não é
+    # código; "0731 - Analista" (Sicredi) e "12393045 - Engenheiro" são.
+    return re.sub(r"^\d{4,}\s*[-|:·]\s*", "", t) or t
+
+
+def _item(vaga, curriculos: set[int], cartas: set[int]) -> ItemFila:
+    from jobapplier import aderencia, empresas
+
+    nivel1 = aderencia.analisar(vaga)
     return ItemFila(
         id=vaga.id,
-        titulo=vaga.titulo or "",
+        titulo=titulo_exibicao(vaga.titulo),
         empresa=vaga.empresa or "",
         empresa_exibicao=empresas.nome_exibicao(vaga.empresa) or (vaga.empresa or ""),
         plataforma=(vaga.plataforma or "").lower(),
@@ -71,6 +96,8 @@ def _item(vaga, curriculos: set[int], cartas: set[int]) -> ItemFila:
         status=vaga.status or "",
         tem_curriculo=vaga.id in curriculos,
         tem_carta=vaga.id in cartas,
+        aderencia={"titulo": nivel1.titulo, "rotulo": nivel1.rotulo,
+                   "porque": nivel1.porque, "atencao": nivel1.atencao},
     )
 
 
@@ -227,8 +254,11 @@ def dossie(vaga_id: int) -> dict:
         # ficha não sai, e nenhum dos três impede o resto do painel.
         perguntas = []
 
+    from jobapplier import aderencia
+
     return {
         "vaga": item.como_dict(),
+        "aderencia": aderencia.analisar(vaga).como_dict(),
         "carta": texto_carta,
         "perguntas": perguntas,
         "situacao_ficha": situacao,

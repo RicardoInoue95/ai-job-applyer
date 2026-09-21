@@ -218,6 +218,22 @@ site. Tokens de cor copiados de `ui/_ui.py`: é o mesmo produto.
 Rotas que o painel consome: `/saude`, `/fila` (`tudo=1` para o acervo),
 `/vaga/{id}/dossie`, `/vaga/{id}/curriculo`, `/vaga/{id}/decisao`.
 
+**A inbox é a tela padrão do painel** (`painel/src/Inbox.tsx`): uma vaga por
+vez, `← 3 / 42 →`, nível 1 da aderência no cartão, checklist do dossiê, a
+evidência atrás de "por que combina" (uma chamada por vaga, só quando aberta).
+Ações: **Abrir e candidatar** (primária — abre o link numa aba E grava
+`aberta`; a vaga NÃO sai da fila, porque abrir o link não é enviar), e
+"Já me candidatei" / "Depois" / "Não é para mim". Atalhos: ← → navegam, Enter
+abre, A candidatei, S depois, E não é para mim — ignorados quando o foco está
+num campo de texto. `/fila` sem parâmetro devolve `precisam_de_voce()`, o mesmo
+conjunto do contador "Revisar · N" do webapp: as duas telas contam a mesma
+coisa. `titulo_exibicao` (em `fila.py`, não na UI) tira o código de requisição
+do título nos dois lugares.
+
+`tests/e2e/test_painel.py` carrega o painel como página da extensão contra a
+API real e prova contador, navegação por teclado e evidência sob demanda. Não
+decide nada: decisão grava no banco real, sobre vaga sua.
+
 Lição do primeiro build: a API em execução era anterior às rotas novas e
 respondeu 404 sem corpo do catálogo; o cliente chamou isso de "API fora" ao lado
 de um ponto verde que acabara de falar com ela. Resposta sem `erro.codigo` agora

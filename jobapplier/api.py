@@ -508,8 +508,15 @@ async def listar_fila(request):
         itens = mod.listar(score_min=int(params.get("score_min") or 0),
                            limite=int(params.get("limite") or 100))
     else:
-        itens = mod.do_dia(int(params.get("limite") or mod.DO_DIA))
-    return JSONResponse({"vagas": [i.como_dict() for i in itens]})
+        # O mesmo conjunto do contador da barra do webapp: excelentes com
+        # dossiê. A inbox do painel percorre esta lista, então ela e o "Revisar
+        # · 42" têm de contar a mesma coisa.
+        itens = mod.precisam_de_voce()
+        limite = int(params.get("limite") or 0)
+        if limite:
+            itens = itens[:limite]
+    return JSONResponse({"vagas": [i.como_dict() for i in itens],
+                         "corte": mod.corte_de_atencao()})
 
 
 async def dossie_da_vaga(request):
