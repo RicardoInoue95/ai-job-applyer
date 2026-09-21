@@ -175,6 +175,28 @@ CSS = """
   .ader-barra { height: 4px; border-radius: 2px; background: var(--borda);
                 overflow: hidden; margin-top: .3rem; width: 68px; }
   .ader-barra i { display: block; height: 100%; background: var(--acao); }
+  /* CTA interno como botão. `st.page_link` é o único jeito de navegar entre
+     páginas sem abrir aba nova, e renderiza como link de texto; num container
+     com `key="cta"` ele ganha a cara da ação primária. Só um por tela. */
+  .st-key-cta [data-testid="stPageLink"] a {
+    display: inline-flex; align-items: center; gap: .4rem;
+    background: var(--acao); color: #fff !important; font-weight: 550;
+    padding: .55rem 1.1rem; border-radius: var(--raio-p); text-decoration: none;
+  }
+  .st-key-cta [data-testid="stPageLink"] a:hover { background: var(--acao-hover); }
+  .st-key-cta [data-testid="stPageLink"] a * { color: #fff !important; }
+
+  /* Nível 1: conclusão. Sem barra na lista — a barra era um segundo número. */
+  .concl { font-size: var(--txt-apoio); color: var(--txt-2); margin-top: .35rem; }
+  .concl .atencao { color: var(--aviso); }
+  /* Nível 2: um eixo por linha, barra cinza com preenchimento neutro. O índigo
+     fica para a ação; barra de evidência não é ação. */
+  .eixo { display: grid; grid-template-columns: 110px 1fr 44px; gap: .6rem;
+          align-items: center; font-size: var(--txt-apoio); color: var(--txt-2);
+          margin: .25rem 0; }
+  .eixo .barra { height: 6px; border-radius: 3px; background: var(--borda); overflow: hidden; }
+  .eixo .barra i { display: block; height: 100%; background: var(--txt-3); }
+  .eixo .num { text-align: right; color: var(--txt-3); }
 
   /* ── Estado vazio ─────────────────────────────────────────────────────── */
   .vazio { text-align: center; padding: 2.4rem 1rem; color: var(--txt-3);
@@ -356,6 +378,72 @@ def aderencia(score: float | None, com_barra: bool = True,
     return (f'<div style="display:flex;flex-direction:column;align-items:{alinhar}">'
             f'<span class="ader" style="color:{cor}">{score:.0f}% de aderência</span>'
             f'{barra}</div>')
+
+
+def titulo_limpo(titulo: str | None) -> str:
+    """`12393045 - Engenheiro de Dados Pleno` → `Engenheiro de Dados Pleno`.
+
+    Código de requisição no começo do título é identificador do ATS da
+    empresa, não cargo — e é o primeiro campo que o olho lê. Fica no detalhe,
+    onde a vaga é identificada por número mesmo.
+    """
+    import re
+
+    t = (titulo or "").strip()
+    # Só numeral de 4+ dígitos seguido de separador: "3 Analistas" não é
+    # código; "0731 - Analista" (Sicredi) e "12393045 - Engenheiro" são.
+    return re.sub(r"^\d{4,}\s*[-|:·]\s*", "", t) or t
+
+
+def conclusao(a: dict | None, com_atencao: bool = True, so_titulo: bool = False) -> str:
+    """Nível 1 da aderência: `97% · Excelente`, por quê, e o ponto de atenção.
+
+    Só isso na lista. Skills, senioridade e barras são evidência, e evidência
+    em todo cartão traz de volta o excesso de informação — vai em `evidencia`,
+    no detalhe. `a` é `jobapplier.aderencia.Aderencia.como_dict()`.
+    """
+    if not a:
+        return '<span class="ader" style="color:var(--txt-3)">sem avaliação</span>'
+    score = a.get("score") or 0
+    cor = "var(--ok)" if score >= 85 else ("var(--txt-1)" if score >= 65
+                                           else "var(--txt-3)")
+    partes = [f'<span class="ader" style="color:{cor}">{a["titulo"]}</span>']
+    # Na listagem, só o título: "97% · Excelente". Por quê e ponto de atenção
+    # em todo cartão de uma lista de cem traz de volta o excesso de informação.
+    if so_titulo:
+        return partes[0]
+    if a.get("porque"):
+        partes.append(f'<div class="concl">{a["porque"]}</div>')
+    if com_atencao and a.get("atencao"):
+        partes.append(f'<div class="concl atencao">⚠ {a["atencao"]}</div>')
+    return "".join(partes)
+
+
+def evidencia(a: dict | None) -> None:
+    """Nível 2: nota por eixo em barras, tecnologias cobertas e ausentes."""
+    if not a:
+        return
+    linhas = []
+    for e in a.get("eixos") or []:
+        # `fracao` vem de `Aderencia.como_dict`; o fallback cobre dict montado à mão.
+        fracao = e["fracao"] if "fracao" in e else (
+            e["nota"] / e["maximo"] if e.get("maximo") else 0)
+        pct = round(fracao * 100)
+        linhas.append(
+            f'<div class="eixo"><span>{e["nome"]}</span>'
+            f'<div class="barra"><i style="width:{min(pct, 100)}%"></i></div>'
+            f'<span class="num">{pct}%</span></div>')
+    if linhas:
+        st.markdown("".join(linhas), unsafe_allow_html=True)
+    cobertas = a.get("cobertas") or []
+    faltam = a.get("faltam") or []
+    if cobertas:
+        st.markdown(" ".join(badge(f"✓ {t.replace(' (equivalente)', '')}")
+                             for t in cobertas[:10]), unsafe_allow_html=True)
+    # O ponto de atenção (nível 1) já está no cartão; aqui só o que ele não
+    # disse — a lista completa do que a vaga pede e o currículo não cita.
+    if faltam:
+        st.caption("Não cita: " + ", ".join(faltam))
 
 
 def vazio(titulo: str, detalhe: str = "") -> None:

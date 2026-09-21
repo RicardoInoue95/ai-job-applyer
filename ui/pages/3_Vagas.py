@@ -28,6 +28,7 @@ config = ConfigManager()
 try:
     from sqlalchemy import func
 
+    from jobapplier import aderencia, empresas
     from jobapplier import status as vocab
     from jobapplier.database.connection import get_session
     from jobapplier.database.models import AprovacoesHistorico, Vaga
@@ -160,22 +161,26 @@ st.caption(f"{len(vagas)} vaga{'s' if len(vagas) != 1 else ''} · "
 for vaga in vagas:
     normalizado = vaga.normalizado_json if isinstance(vaga.normalizado_json, dict) else {}
     senioridade = normalizado.get("senioridade") or ""
-    coletada = vaga.criado_em.strftime("%d/%m") if vaga.criado_em else ""
+    # "Desconhecida" não é informação: é o normalizador dizendo que não achou.
+    if senioridade.lower() == "desconhecida":
+        senioridade = ""
 
+    # Nível 1: onde, como, que nível. Data de coleta e plataforma são nível 3 e
+    # ficam em Detalhes — na lista, só confundiam com o que decide.
     meta = _ui.linha_meta(
-        _ui.badge((vaga.plataforma or "").title()),
         f"<span>{vaga.localizacao}</span>" if vaga.localizacao else "",
         f"<span>{(vaga.modalidade or '').capitalize()}</span>" if vaga.modalidade else "",
         f"<span>{senioridade}</span>" if senioridade else "",
-        f"<span>Coletada em {coletada}</span>" if coletada else "",
     )
 
     with st.container(border=True):
         esq, dir_ = st.columns([3.2, 1], vertical_alignment="top")
         with esq:
             st.markdown(
-                f'<div class="vaga-empresa">{vaga.empresa or "—"}</div>'
-                f'<div class="vaga-titulo">{vaga.titulo or "—"}</div>{meta}',
+                f'<div class="vaga-empresa">'
+                f'{empresas.nome_exibicao(vaga.empresa) or vaga.empresa or "—"}</div>'
+                f'<div class="vaga-titulo">{_ui.titulo_limpo(vaga.titulo) or "—"}</div>'
+                f'{meta}',
                 unsafe_allow_html=True,
             )
         with dir_:
@@ -183,30 +188,26 @@ for vaga in vagas:
                 '<div style="display:flex;flex-direction:column;'
                 'align-items:flex-end;gap:.45rem">'
                 f'{_ui.badge_status(vaga.status)}'
-                f'{_ui.aderencia(vaga.score, alinhar="flex-end")}</div>',
+                f'{_ui.conclusao(aderencia.analisar(vaga).como_dict(), so_titulo=True)}'
+                '</div>',
                 unsafe_allow_html=True,
             )
 
         with st.expander("Detalhes"):
-            d1, d2 = st.columns(2)
-            with d1:
-                if normalizado.get("tecnologias"):
-                    st.markdown("**Tecnologias**")
-                    st.caption(", ".join(normalizado["tecnologias"][:12]))
-                bd = vaga.score_breakdown_json or {}
-                if bd.get("resumo"):
-                    st.markdown("**Resumo**")
-                    st.caption(bd["resumo"])
-            with d2:
-                bd = vaga.score_breakdown_json or {}
-                if bd.get("motivos_positivos"):
-                    st.markdown("**A favor**")
-                    for p in bd["motivos_positivos"][:4]:
-                        st.caption(f"— {p}")
-                if bd.get("gaps"):
-                    st.markdown("**Pontos de atenção**")
-                    for g in bd["gaps"][:4]:
-                        st.caption(f"— {g}")
+            # Nível 2 pelo serviço: barras por eixo, tecnologias cobertas e o
+            # que falta. Antes eram dois dicionários crus lidos à mão aqui e
+            # de outro jeito em Revisar — a mesma vaga explicada de duas formas.
+            a = aderencia.analisar(vaga).como_dict()
+            st.markdown(f"**{a['porque']}**")
+            if a.get("atencao"):
+                st.markdown(f"⚠ {a['atencao']}")
+            _ui.evidencia(a)
+            if normalizado.get("tecnologias"):
+                st.caption("A vaga pede: " + ", ".join(normalizado["tecnologias"][:12]))
+            # Nível 3, só aqui.
+            coletada = vaga.criado_em.strftime("%d/%m/%Y") if vaga.criado_em else "—"
+            st.caption(f"{(vaga.plataforma or '').title()} · vaga {vaga.id} · "
+                       f"coletada em {coletada}")
 
             a1, a2, a3 = st.columns([1.3, 1, 1])
             with a1:

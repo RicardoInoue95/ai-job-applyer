@@ -37,20 +37,43 @@ configurado = config.is_setup_complete()
 
 CONFIGURACOES = st.Page("pages/1_Setup.py", title="Configurações",
                         icon=":material/settings:", url_path="configuracoes")
-DASHBOARD = st.Page("pages/2_Dashboard.py", title="Dashboard",
-                    icon=":material/home:", url_path="dashboard", default=True)
+INICIO = st.Page("pages/2_Dashboard.py", title="Início",
+                 icon=":material/home:", url_path="inicio", default=True)
 VAGAS = st.Page("pages/3_Vagas.py", title="Vagas",
                 icon=":material/work_outline:", url_path="vagas")
 CANDIDATURAS = st.Page("pages/4_Candidaturas.py", title="Candidaturas",
                        icon=":material/send:", url_path="candidaturas")
-APLICAR = st.Page("pages/5_Aplicar.py", title="Revisar e aplicar",
-                  icon=":material/rate_review:", url_path="revisar")
+# Documentos continua acessível pela URL e por link dentro do produto, mas sai
+# da navegação: é acervo, não decisão. "Tenho 590 documentos" não é o que
+# ninguém quer pensar — "minha candidatura para a X está pronta" é.
 DOCUMENTOS = st.Page("pages/7_Documentos.py", title="Currículos e cartas",
                      icon=":material/description:", url_path="documentos")
 
-# Sem configuração completa não há o que navegar: a única página é o wizard.
-paginas = ([DASHBOARD, VAGAS, APLICAR, CANDIDATURAS, DOCUMENTOS, CONFIGURACOES]
-           if configurado else [CONFIGURACOES])
+
+def _revisar_com_contador() -> "st.Page":
+    """"Revisar · 14": o contador na barra é a informação mais poderosa que a
+    navegação pode dar — "tenho 14 coisas para decidir" sem entrar em lugar
+    nenhum. Sem banco, o rótulo fica sem número, não sem página."""
+    try:
+        from jobapplier import fila
+
+        n = len(fila.precisam_de_voce())
+        titulo = f"Revisar · {n}" if n else "Revisar"
+    except Exception:
+        titulo = "Revisar"
+    return st.Page("pages/5_Aplicar.py", title=titulo,
+                   icon=":material/rate_review:", url_path="revisar")
+
+
+# A jornada, não o sistema: Início → Vagas → Revisar → Candidaturas. O resto
+# existe, mas não na barra. Sem configuração completa a única página é o wizard.
+if configurado:
+    paginas = {
+        "": [INICIO, VAGAS, _revisar_com_contador(), CANDIDATURAS],
+        "Mais": [CONFIGURACOES, DOCUMENTOS],
+    }
+else:
+    paginas = [CONFIGURACOES]
 
 # ── Identidade ───────────────────────────────────────────────────────────────
 
@@ -71,28 +94,19 @@ if configurado:
     with st.sidebar:
         try:
             from jobapplier import envio_automatico as ea
-            from jobapplier.database.connection import get_session
-            from jobapplier.database.models import Vaga
 
             ativo = ea.esta_ativo(config)
-            with get_session() as sessao:
-                ultima = (sessao.query(Vaga.ultima_coleta_em)
-                          .order_by(Vaga.ultima_coleta_em.desc()).first())
 
+            # Uma linha. A versão anterior tinha três — rótulo, explicação e
+            # data — e era o elemento mais pesado da barra. O estado importa
+            # (com envio ativo, coisas são enviadas em seu nome); a explicação
+            # cabe no Início, onde há espaço para dizê-la.
             cor = "var(--aviso)" if ativo else "var(--ok)"
-            rotulo = "Envio automático ativo" if ativo else "Modo sombra ativo"
-            detalhe = ("candidaturas são enviadas em seu nome" if ativo
-                       else "nada é enviado sem você")
-            quando = (ultima[0].strftime("%d/%m às %H:%M")
-                      if ultima and ultima[0] else "—")
-
+            rotulo = "Automação ativa" if ativo else "Modo sombra"
             st.markdown(
-                f'<div class="rodape">'
-                f'<div class="rodape-linha">'
-                f'<span class="ponto" style="background:{cor}"></span>{rotulo}</div>'
-                f'<div class="rodape-linha" style="padding-left:1.1rem">{detalhe}</div>'
-                f'<div class="rodape-linha" style="margin-top:.35rem">'
-                f'Última coleta: {quando}</div></div>',
+                f'<div class="rodape"><div class="rodape-linha">'
+                f'<span class="ponto" style="background:{cor}"></span>{rotulo}'
+                f'</div></div>',
                 unsafe_allow_html=True,
             )
         except Exception:

@@ -115,6 +115,27 @@ def listar(score_min: int = 0, plataformas: tuple[str, ...] = (),
     return [_item(v, curriculos, cartas) for v in vagas]
 
 
+def corte_de_atencao() -> int:
+    """A partir de que score uma vaga "precisa de você": `scoring.threshold_auto`.
+
+    É o corte em que o sistema confiaria para enviar sozinho — então é o corte
+    em que vale a sua decisão. Abaixo dele a vaga continua em Vagas, com
+    dossiê, acessível; só não entra na conta de "precisam de você", que senão
+    volta a ser 275.
+    """
+    from jobapplier.config.manager import ConfigManager
+
+    return int((ConfigManager().get("scoring") or {}).get("threshold_auto", 85))
+
+
+def precisam_de_voce() -> list[ItemFila]:
+    """As que a IA achou excelentes E já preparou. É o número da barra lateral
+    e a frase do Início. `pendente` fica fora: possibilidade não é fila."""
+    corte = corte_de_atencao()
+    return [i for i in listar(score_min=corte)
+            if i.status != "pendente" and i.tem_curriculo]
+
+
 def do_dia(quantas: int = DO_DIA) -> list[ItemFila]:
     """As melhores da fila, poucas de propósito.
 

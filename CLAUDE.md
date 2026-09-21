@@ -143,6 +143,40 @@ vazia é o sinal para revisar os seletores. A lista completa de competências s�
 existe em `/in/<slug>/details/skills/`: visitar essa página antes guarda a lista,
 e o envio do perfil a usa.
 
+### A interface mostra a jornada, não o sistema
+
+Navegação: **Início · Vagas · Revisar · N · Candidaturas**, e "Mais" com
+Configurações e Currículos e cartas. Seis páginas de mesmo peso eram o sistema
+se apresentando; o produto é *encontrar → decidir → preparar → enviar →
+acompanhar*, e a barra segue essa ordem. O contador em "Revisar · 42" é
+`fila.precisam_de_voce()`: excelentes (≥ `threshold_auto`) com dossiê pronto.
+Não é a fila inteira (275 com dossiê) — esse número na barra é a lista de
+afazeres de volta. A página Revisar abre com o **mesmo** conjunto; o filtro
+deixa baixar o corte.
+
+**Início responde "o que eu faço agora?"** e só isso: cumprimento, quantas
+precisam de você com o botão, a próxima (uma, com Currículo ✓ Carta ✓), um
+número de candidaturas, uma linha de automação. Saíram: fontes por plataforma,
+barras, contagem de documentos, execução manual, ligar/desligar o envio (foi
+para Configurações → Automação). Uma métrica só de candidaturas porque o
+sistema ainda não lê respostas por e-mail — "11 enviadas · 11 aguardando" lado
+a lado era o pior dos mundos; a frase diz o limite em vez de fingir funil.
+
+**Três níveis de informação** (`jobapplier/aderencia.py`): nível 1 é a
+conclusão — `97% · Excelente`, uma frase de por quê, o ponto de atenção mais
+grave —; nível 2 é evidência — barras por eixo, tecnologias cobertas, o que
+falta —; nível 3 é técnico — plataforma, id, data de coleta. **Na lista de
+Vagas só o título do nível 1.** No cartão de Revisar, o nível 1 inteiro. Nível
+2 ao abrir; nível 3 dentro de Detalhes. Eixo ausente do breakdown é
+desconhecido, não zero: score de versão antiga sem `localizacao` não pode virar
+"presencial em cidade não aceita". Rótulo pelo score **arredondado**: 84,8
+aparece como 85% e "85% · Boa" contradiria a faixa.
+
+`_ui.titulo_limpo` tira o código de requisição do começo do título
+(`12393045 - Engenheiro…`): é identificador do ATS, e era a primeira coisa que
+o olho lia. Em Candidaturas, "aguardando alguma ação sua" conta só
+`revisao_manual`; `perguntas_pendentes` é legado de agosto e punha 168 no topo.
+
 ### Catálogo de erros e diagnóstico
 
 `jobapplier/erros.py` — todo erro tem **código estável** (`vaga-ambigua`),
@@ -479,6 +513,7 @@ jobapplier/            domínio — nada de UI aqui
   erros.py             catálogo: código estável, mensagem e ação, para toda tela
   diagnostico.py       /saude — banco, schema, currículo, config, coleta
   fila.py              a fila do dia e a decisão sobre uma vaga (webapp e painel)
+  aderencia.py         o score em três níveis: conclusão, evidência, técnico
   documentos.py        todo currículo e carta em disco, ligados à vaga pelo nome
   collectors/          Greenhouse, Lever, Gupy (APIs REST, sem browser)
   filters/             4A pré-normalização, 4B pós-normalização

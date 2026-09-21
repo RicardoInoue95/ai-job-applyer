@@ -58,3 +58,21 @@ def test_item_serializa_tudo_que_o_painel_le():
     for chave in ("id", "titulo", "empresa_exibicao", "plataforma", "link",
                   "score", "localizacao", "modalidade", "tem_curriculo", "tem_carta"):
         assert chave in d
+
+
+def test_precisam_de_voce_e_o_corte_de_confianca(monkeypatch):
+    """Só as excelentes com dossiê. 275 na barra é a lista maçante de volta;
+    o corte é o mesmo em que o sistema confiaria para enviar sozinho."""
+    monkeypatch.setattr(fila, "corte_de_atencao", lambda: 85)
+    visto = {}
+
+    def _listar(**k):
+        visto.update(k)
+        return [_item(1, 90), _item(2, 88, cv=False),
+                fila.ItemFila(id=3, titulo="", empresa="", empresa_exibicao="",
+                              plataforma="gupy", link="", score=95, localizacao="",
+                              modalidade="", status="pendente", tem_curriculo=True)]
+
+    monkeypatch.setattr(fila, "listar", _listar)
+    assert [i.id for i in fila.precisam_de_voce()] == [1]
+    assert visto["score_min"] == 85

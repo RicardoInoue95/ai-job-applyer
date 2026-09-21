@@ -44,7 +44,11 @@ _ui.cabecalho("Candidaturas",
 #: Vocabulário novo + legado: linhas antigas do banco continuam contando.
 GRUPOS = {
     "enviadas": ("enviada_confirmada", "enviada"),
-    "revisao": ("revisao_manual", "perguntas_pendentes"),
+    # Só o vocabulário atual. `perguntas_pendentes` é legado da régua antiga —
+    # 165 linhas de agosto — e contá-lo como "aguardando ação sua" punha 168 no
+    # topo da página: a lista de afazeres de volta, com outro nome. As linhas
+    # continuam na tabela, com o status delas.
+    "revisao": ("revisao_manual",),
     "preparadas": ("simulada",),
     "falhas": ("falha_automacao", "erro"),
 }
@@ -55,25 +59,25 @@ with get_session() as session:
                .filter(Candidatura.status.in_(codigos)).scalar() or 0)
         for nome, codigos in GRUPOS.items()
     }
-    ats_med = (session.query(func.avg(Candidatura.ats_score_otimizado))
-               .filter(Candidatura.ats_score_otimizado.isnot(None)).scalar())
     aprovadas_count = (session.query(func.count(Vaga.id))
                        .filter(Vaga.status == "aprovada").scalar() or 0)
 
-m1, m2, m3, m4 = st.columns(4)
+# Dois números, não quatro: "enviadas" e "aguardando alguma ação sua" são os
+# que mudam uma decisão. "Preparadas" e "falhas técnicas" continuam na tabela,
+# como filtro; a aderência ATS média era nível técnico e saiu da tela.
+#
+# Honesto sobre o limite: o sistema ainda não lê respostas por e-mail, então
+# não sabe se você foi chamado. Fingir "em processo / entrevista" com colunas
+# vazias seria uma falsa sensação de produto completo.
+m1, m2 = st.columns(2)
 with m1:
     _ui.metrica("Enviadas", contagem["enviadas"], "confirmadas pela plataforma")
 with m2:
-    _ui.metrica("Aguardando revisão", contagem["revisao"],
-                "pergunta em branco ou envio sem prova")
-with m3:
-    _ui.metrica("Preparadas", contagem["preparadas"],
-                "documentos prontos, não enviadas")
-with m4:
-    _ui.metrica("Falhas técnicas", contagem["falhas"], "nada foi submetido")
-
-if ats_med:
-    st.caption(f"Aderência ATS média dos currículos adaptados: {ats_med:.0f}%")
+    _ui.metrica("Aguardando alguma ação sua", contagem["revisao"],
+                "pergunta em branco ou envio sem prova",
+                destaque=bool(contagem["revisao"]))
+st.caption("Ainda não identificamos respostas a candidaturas enviadas — o "
+           "acompanhamento por e-mail é o próximo passo do produto.")
 
 # ── Ação principal ────────────────────────────────────────────────────────────
 # Leva à revisão do que está pronto, não a um envio em massa sem contexto.

@@ -1087,6 +1087,85 @@ def step_7():
 # desistir. A partir daqui o mesmo código serve aos dois usos: as funções de
 # etapa já eram independentes.
 
+def secao_automacao():
+    """Ligar e desligar o envio automático. Saiu do Início: ligar o envio é
+    decisão de configuração, com a caixa "entendo" e a lista do que qualifica —
+    não é o que se decide todo dia. A lógica mora em
+    `jobapplier/envio_automatico.py`; aqui só botões."""
+    from jobapplier import envio_automatico as ea
+
+    st.markdown("#### Automação")
+    corte_auto = ea.threshold_auto(config)
+
+    if not ea.esta_ativo(config):
+        st.markdown(
+            f"**Modo sombra.** O sistema encontra vagas e prepara currículo, "
+            f"carta e respostas, e não envia nada. Ligado, vagas com aderência a "
+            f"partir de {corte_auto}% em plataformas com automação serão "
+            f"enviadas em seu nome, dentro dos limites diários."
+        )
+        entendo = st.checkbox(
+            "Entendo que o sistema passará a enviar candidaturas em meu nome, "
+            "sem revisão individual"
+        )
+        if st.button("Ativar envio automático", type="primary",
+                     icon=":material/bolt:", disabled=not entendo):
+            ea.ativar(config)
+            st.rerun()
+        return
+
+    st.markdown(
+        f"**Ativa.** Vagas futuras com aderência a partir de {corte_auto}% em "
+        f"plataformas com automação serão enviadas automaticamente. As demais "
+        f"seguem para a revisão."
+    )
+    if st.button("Desativar", icon=":material/pause:"):
+        ea.desativar(config)
+        st.rerun()
+
+    # Ativar e reenfileirar são atos separados, por decisão: vaga preparada em
+    # modo sombra esperava revisão humana, e mudar isso retroativamente é um
+    # segundo clique — com a lista na frente dos olhos.
+    quals = ea.qualificaveis(config)
+    if quals:
+        st.markdown(f"**{len(quals)} vagas já preparadas** qualificam:")
+        for q in quals:
+            st.caption(f"{q['score']:.0f}% · {(q['titulo'] or '')[:56]} — "
+                       f"{q['empresa'] or '—'}")
+        if st.button(f"Reenfileirar {len(quals)} para envio",
+                     icon=":material/playlist_add:"):
+            n = ea.reenfileirar(config)
+            st.success(f"{n} vagas na fila de envio. Saem no próximo ciclo, "
+                       "dentro dos limites diários.")
+            st.rerun()
+
+    risco = config.load().get("risco") or {}
+    if risco.get("auto_aplicar_pendentes"):
+        st.warning("`auto_aplicar_pendentes` está ligado: vagas pendentes serão "
+                   "candidatadas sem a sua aprovação.", icon=":material/warning:")
+
+    st.divider()
+    st.markdown("**Atualizar agora**")
+    st.caption("O orquestrador faz isto sozinho a cada 2h; aqui é para quando "
+               "você não quer esperar.")
+    a, b = st.columns(2)
+    with a:
+        if st.button("Coletar vagas", icon=":material/refresh:"):
+            from jobapplier import orchestrator
+
+            with st.spinner("Coletando…"):
+                orchestrator.run_collection()
+                orchestrator.run_pipeline()
+            st.success("Coleta concluída.")
+    with b:
+        if st.button("Tirar da fila as encerradas", icon=":material/delete_sweep:"):
+            from jobapplier import orchestrator
+
+            with st.spinner("Verificando cada vaga na plataforma…"):
+                r = orchestrator.varrer_encerradas()
+            st.success(f"{r.get('encerradas', 0)} de {r.get('fila', 0)} estavam encerradas.")
+
+
 STEP_HANDLERS = {
     1: step_1,
     2: step_2,
@@ -1095,6 +1174,7 @@ STEP_HANDLERS = {
     5: step_5,
     6: step_6,
     7: step_7,
+    8: secao_automacao,
 }
 
 #: Seções no modo ajuste, ordenadas pelo que muda com mais frequência — não pela
@@ -1102,6 +1182,7 @@ STEP_HANDLERS = {
 #: currículo, quase nunca.
 SECOES = [
     ("Preferências", 3, "Cargos, localização, condições e dados pessoais"),
+    ("Automação", 8, "Envio automático, coleta e varredura de encerradas"),
     ("Plataformas", 5, "Empresas e palavras-chave por plataforma"),
     ("LinkedIn", 4, "Sessão salva e busca"),
     ("Currículo", 2, "Substituir o currículo base"),

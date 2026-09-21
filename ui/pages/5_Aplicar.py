@@ -24,8 +24,9 @@ from jobapplier.config.manager import ConfigManager
 config = ConfigManager()
 
 try:
+    from jobapplier import aderencia, empresas, paths
     from jobapplier import ficha as mod_ficha
-    from jobapplier import paths
+    from jobapplier import fila as fila_mod
     from jobapplier.database.connection import get_session
     from jobapplier.database.models import Vaga
 except Exception as exc:
@@ -52,6 +53,10 @@ def carregar_fila(plataformas: tuple, score_min: int, modalidades: tuple,
             consulta = consulta.filter(Vaga.plataforma.in_(plataformas))
         linhas = consulta.all()
 
+    from jobapplier import documentos
+
+    com_curriculo = {d.vaga_id for d in documentos.listar() if d.curriculo}
+
     fila = []
     for v in linhas:
         if (v.score or 0) < score_min:
@@ -65,6 +70,8 @@ def carregar_fila(plataformas: tuple, score_min: int, modalidades: tuple,
         if cidades and _cidade(v.localizacao) not in cidades:
             continue
         fila.append({
+            "aderencia": aderencia.analisar(v).como_dict(),
+            "tem_curriculo": v.id in com_curriculo,
             "id": v.id, "titulo": v.titulo, "empresa": v.empresa,
             "plataforma": v.plataforma, "link": v.link, "score": v.score or 0,
             "localizacao": v.localizacao, "modalidade": v.modalidade,
@@ -198,8 +205,14 @@ def documentos(vaga_id: int) -> tuple[object, str]:
 # Os filtros saíram da barra lateral: lá é navegação do produto, e misturar
 # filtro de uma página com o menu fazia parecer que valiam para todas.
 
-_ui.cabecalho("Revisar e aplicar",
-              "Analise cada oportunidade e prepare sua candidatura.")
+# O padrão da fila é o MESMO conjunto do contador da barra ("Revisar · 42"):
+# excelentes com dossiê pronto. A versão anterior abria com "287 vagas para
+# revisar" — o corte de 65 — ao lado de uma barra que dizia 42, e começava
+# por uma vaga sem currículo gerado. Baixar o corte continua possível, no
+# filtro; o que muda é o ponto de partida.
+corte_padrao = fila_mod.corte_de_atencao()
+
+_ui.cabecalho("Revisar", "A IA encontrou e preparou. Falta a sua decisão.")
 
 modos_disponiveis, cidades_disponiveis = opcoes_de_filtro()
 
@@ -216,10 +229,15 @@ with st.expander("Filtros", expanded=False):
         cidades = st.multiselect("Localização", cidades_disponiveis,
                                  placeholder="Todas")
     with f4:
-        score_min = st.slider("Aderência mínima", 0, 100, 65, step=5)
+        score_min = st.slider("Aderência mínima", 0, 100, corte_padrao, step=5,
+                              help="Abaixo do padrão entram as vagas boas mas "
+                                   "não excelentes — e as possibilidades.")
+        so_prontas = st.toggle("Só com dossiê pronto", value=True)
 
 fila = carregar_fila(tuple(plataformas), score_min, tuple(modalidades),
                      tuple(cidades))
+if so_prontas:
+    fila = [v for v in fila if v["tem_curriculo"]]
 feitas = st.session_state.get("decididas_hoje", 0)
 
 if not fila:
@@ -229,7 +247,7 @@ if not fila:
     else:
         _ui.vazio("Nenhuma vaga com esses filtros",
                   "Afrouxe um filtro, reduza a aderência mínima ou colete "
-                  "vagas novas no Dashboard.")
+                  "vagas novas em Configurações → Automação.")
     st.stop()
 
 # Sempre a primeira: toda decisão remove a vaga da fila, então não há índice
@@ -272,11 +290,12 @@ with coluna_vaga:
     )
     st.markdown(
         '<div class="cartao">'
-        f'<div class="vaga-empresa">{vaga["empresa"] or "—"}</div>'
+        f'<div class="vaga-empresa">'
+        f'{empresas.nome_exibicao(vaga["empresa"]) or vaga["empresa"] or "—"}</div>'
         '<div class="vaga-titulo" style="font-size:1.28rem;margin:.2rem 0 .1rem">'
-        f'{vaga["titulo"] or "—"}</div>'
+        f'{_ui.titulo_limpo(vaga["titulo"]) or "—"}</div>'
         f'{meta}'
-        f'<div style="margin-top:.7rem">{_ui.aderencia(vaga["score"])}</div>'
+        f'<div style="margin-top:.7rem">{_ui.conclusao(vaga["aderencia"])}</div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -308,29 +327,12 @@ with coluna_vaga:
             decidir(vaga["id"], "descartada_por_voce", vaga["status"])
             st.rerun()
 
-    # ── Por que esta aderência ───────────────────────────────────────────────
-    if vaga["breakdown"]:
-        bd = vaga["breakdown"]
-        _ui.secao("Por que esta aderência")
-        dims = bd.get("breakdown") or {}
-        if isinstance(dims, dict) and dims:
-            chips = " ".join(
-                _ui.badge(f"{d.replace('_', ' ')} <b class='num'>{v:g}</b>")
-                for d, v in dims.items()
-            )
-            st.markdown(f'<div style="margin-bottom:.5rem">{chips}</div>',
-                        unsafe_allow_html=True)
-
-        positivos = bd.get("motivos_positivos") or []
-        gaps = bd.get("gaps") or []
-        if positivos:
-            st.markdown("**A favor**")
-            for p in positivos[:4]:
-                st.caption(f"— {p}")
-        if gaps:
-            st.markdown("**Pontos de atenção**")
-            for g in gaps[:4]:
-                st.caption(f"— {g}")
+    # ── Por que combina (nível 2: evidência) ────────────────────────────────
+    # O cartão já deu a conclusão. Aqui as barras por eixo e as tecnologias —
+    # para quem quer conferir, não para quem quer decidir.
+    if vaga["aderencia"]:
+        _ui.secao("Por que combina")
+        _ui.evidencia(vaga["aderencia"])
 
     if vaga["descricao"]:
         with st.expander("Descrição completa da vaga"):
