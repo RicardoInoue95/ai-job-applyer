@@ -47,8 +47,11 @@ function opcaoAlvo(seletor, valor, opcoes) {
 
   const escolhida = (opcoes || [])
     .find((o) => igual(o.value, valor) || igual(o.label, valor));
-  return escolhida && escolhida.seletor
-    ? document.querySelector(escolhida.seletor) : null;
+  if (!escolhida || !escolhida.seletor) return null;
+  // Pelo índice, não por `querySelector`: o seletor é o do grupo, e o primeiro
+  // do grupo não é a opção escolhida — ver `opcoesDe` em campos.js.
+  const grupo = [...document.querySelectorAll(escolhida.seletor)];
+  return grupo[escolhida.indice >= 0 ? escolhida.indice : 0] || null;
 }
 
 function escrever(seletor, valor, opcoes) {
@@ -95,6 +98,52 @@ function aviso(texto, detalhe) {
   if (!AVISO.isConnected) document.body.appendChild(AVISO);
 }
 
+// Erro do catálogo do Python: `{codigo, titulo, detalhe, acao, auto}`. Mostra o
+// título e, embaixo, o que fazer — que é a parte que importa para quem está
+// cansado. O código vai para o console, onde serve a quem for investigar.
+function avisoDoErro(erro) {
+  if (!erro || !erro.titulo) {
+    // A API respondeu algo que esta versão não entende — extensão mais nova que
+    // o backend, ou o contrário.
+    erro = LOCAIS["contrato-desconhecido"];
+  }
+  console.info(`[AI Job Applier] ${erro.codigo}: ${erro.detalhe}`);
+  aviso(erro.titulo, [erro.detalhe, erro.acao].filter(Boolean).join(" "));
+}
+
+// Os dois únicos erros que NÃO podem vir do catálogo do Python, porque em
+// ambos o Python não foi alcançado. Mesma forma dos outros de propósito: quem
+// lê `avisoDoErro` não precisa saber de onde veio.
+const LOCAIS = {
+  "extensao-desatualizada": {
+    codigo: "extensao-desatualizada",
+    titulo: "A extensão está numa versão antiga",
+    detalhe: "O service worker não respondeu à página.",
+    acao: "Abra chrome://extensions, recarregue a extensão e atualize esta aba.",
+  },
+  "api-fora": {
+    codigo: "api-fora",
+    titulo: "O AI Job Applier não está rodando",
+    detalhe: "O serviço local do AI Job Applier não respondeu.",
+    acao: "Rode `python run.py` na pasta do projeto.",
+  },
+  "contrato-desconhecido": {
+    codigo: "contrato-desconhecido",
+    titulo: "Não deu para preencher",
+    detalhe: "A resposta veio num formato que esta versão não entende.",
+    acao: "Recarregue a extensão e reinicie o `python run.py`.",
+  },
+};
+
+// O status separa o que o catálogo não consegue: -1 é o service worker mudo e
+// 0 é a API inalcançável — nos dois o backend não respondeu, então ele não
+// pôde dizer o que houve.
+function erroDaFalha(e) {
+  if (e.status === -1) return LOCAIS["extensao-desatualizada"];
+  if (!e.status) return LOCAIS["api-fora"];
+  return e.erro;
+}
+
 // Uma vaga que não está no acervo não passa a estar porque perguntamos de novo.
 // Sem isto, cada re-render do React virava outra requisição.
 const desistidas = new Set();
@@ -120,17 +169,14 @@ async function preencher() {
       // Ambiguidade não se resolve por palpite: o PagBank tem duas vagas com o
       // mesmo título, e escolher sozinho preencheria o formulário de uma com a
       // resposta da outra. Você escolhe uma vez; o vínculo fica gravado.
+      avisoDoErro(e.erro);
       escolher(e.corpo.candidatas || []);
-    } else if (e.status === 404) {
-      aviso("Vaga fora do acervo.",
-            "O AI Job Applier não achou esta vaga no banco. Colete-a primeiro, "
-            + "ou abra pela página Vagas.");
-    } else if (e.status === -1) {
-      aviso("Extensão desatualizada.",
-            "Recarregue em chrome://extensions e atualize esta página.");
     } else {
-      aviso("AI Job Applier não respondeu.",
-            "Rode `python run.py` ou `jobapplier.api.servir()`.");
+      // Texto e ação vêm do catálogo do Python (`jobapplier/erros.py`), não
+      // daqui: mensagem duplicada em JavaScript diverge do backend no primeiro
+      // dia, e foi assim que o aviso mandou reiniciar um serviço que estava no
+      // ar enquanto o problema era outro.
+      avisoDoErro(erroDaFalha(e));
     }
     return;
   }
@@ -160,13 +206,11 @@ async function preencher() {
 // jobId na URL, sem vínculo anterior, sem referrer e sem memória da aba. Você
 // responde uma vez por candidatura e nunca mais.
 function escolher(candidatas) {
-  if (!candidatas.length) {
-    aviso("Vaga fora do acervo.",
-          "Nenhuma vaga desta empresa está no banco.");
-    return;
-  }
-  aviso("Qual vaga é esta?",
-        "A página não diz, e adivinhar preencheria com a resposta de outra vaga.");
+  // O texto já foi posto por `avisoDoErro` com o erro `vaga-ambigua` do
+  // catálogo. Aqui só se acrescenta a lista: reescrever o aviso apagaria a
+  // mensagem do backend e traria de volta a duplicação que este arquivo
+  // acabou de perder.
+  if (!candidatas.length) return;
 
   const lista = document.createElement("div");
   lista.style.cssText = "margin-top:8px;display:flex;flex-direction:column;gap:4px";

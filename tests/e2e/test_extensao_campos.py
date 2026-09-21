@@ -108,3 +108,19 @@ def test_o_script_nao_decide_nada():
     for termo in proibido:
         assert termo not in codigo, (
             f"'{termo}' no código de campos.js: decisão vazou para o cliente")
+
+
+def test_opcao_de_radio_leva_o_proprio_indice(pagina):
+    """Rádios do mesmo grupo dividem o `name`, então o seletor da opção é o do
+    grupo inteiro. Sem o índice, marcar "Não" pelo rótulo acertava o primeiro
+    do grupo — "Sim". O índice é a posição dentro do seletor, e tem de bater
+    com o elemento real."""
+    campos = pagina.evaluate("lerCampos()")
+    grupo = next(c for c in campos if "trabalha na empresa" in c["label"])
+    rotulos = [o["label"] for o in grupo["opcoes"]]
+    assert rotulos == ["Sim", "Não"], rotulos
+    for opcao in grupo["opcoes"]:
+        texto = pagina.evaluate(
+            "([s, i]) => document.querySelectorAll(s)[i].closest('label').textContent.trim()",
+            [opcao["seletor"], opcao["indice"]])
+        assert texto == opcao["label"], (opcao, texto)

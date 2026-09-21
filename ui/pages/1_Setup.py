@@ -774,12 +774,86 @@ def step_4():
         config.save(cfg)
         st.success("✓ Queries salvas!")
 
+    st.divider()
+    _secao_perfil_linkedin()
+
     col1, col2 = st.columns(2)
     with col1:
         st.button("Voltar", on_click=_back, args=(4,))
     with col2:
         st.button("Avançar" if session_valid else "Pular por ora →",
                   on_click=_advance, args=(4,), type="primary")
+
+
+_ROTULO_AREA = {"fato": "Fato", "experiencia": "Experiência", "titulo": "Título",
+                "sobre": "Sobre", "competencias": "Competências"}
+_ROTULO_PRIORIDADE = {1: "Corrigir primeiro", 2: "Vocabulário", 3: "Polimento"}
+
+
+def _secao_perfil_linkedin() -> None:
+    """Análise do perfil lido pela extensão. Sem regra de negócio aqui: a
+    comparação mora em `jobapplier.perfil_linkedin`; a página só mostra."""
+    from jobapplier import perfil_linkedin as mod
+
+    _ui.secao("Análise do perfil")
+    registro = mod.carregar()
+    if not registro:
+        _ui.vazio(
+            "Nenhum perfil lido ainda",
+            "Abra o seu perfil no LinkedIn com a extensão carregada e clique em "
+            "**Analisar meu perfil**, no canto da página. A leitura acontece na "
+            "sua aba, quando você pede — nada é lido sozinho.")
+        return
+
+    try:
+        from jobapplier.database.connection import get_session
+
+        mestre = json.loads(paths.RESUME_JSON.read_text(encoding="utf-8"))
+        with get_session() as sessao:
+            mercado = mod.mercado(sessao)
+    except Exception as exc:
+        st.error(f"Não foi possível montar a análise: {exc}")
+        return
+
+    analise = mod.analisar(registro["perfil"], mestre, mercado,
+                           url=registro.get("url", ""), lido_em=registro["lido_em"])
+    # Mesmo formato do rodapé da barra lateral ("16/09 às 19:24").
+    bruto = registro["lido_em"]
+    lido = f"{bruto[8:10]}/{bruto[5:7]} às {bruto[11:16]}" if len(bruto) >= 16 else bruto
+    cobertos, total = analise.cobertura
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        _ui.metrica("Ajustes sugeridos", len(analise.ajustes),
+                    "do mais ao menos urgente", destaque=bool(analise.ajustes))
+    with c2:
+        _ui.metrica("Tecnologias mais pedidas citadas", f"{cobertos} de {total}",
+                    "nas vagas da sua fila")
+    with c3:
+        _ui.metrica("Lido em", lido, "clique de novo para atualizar")
+
+    if not analise.ajustes:
+        st.success("Perfil alinhado com o currículo e com o vocabulário da fila.")
+    for prioridade in (1, 2, 3):
+        grupo = [a for a in analise.ajustes if a.prioridade == prioridade]
+        if not grupo:
+            continue
+        st.write("")
+        st.markdown(f"**{_ROTULO_PRIORIDADE[prioridade]}**")
+        for a in grupo:
+            with st.container(border=True):
+                st.markdown(f"{_ROTULO_AREA.get(a.area, a.area)} — {a.problema}")
+                if a.sugestao:
+                    # `st.code` traz o botão de copiar: o texto é para colar
+                    # no LinkedIn, não para ler aqui.
+                    st.code(a.sugestao, language=None, wrap_lines=True)
+
+    if analise.lacunas:
+        st.caption(
+            "Pedidas pela fila e **fora do seu currículo** (não viram sugestão — "
+            "o sistema não afirma o que o currículo não sustenta): "
+            + ", ".join(analise.lacunas))
+    with st.expander("O que a fila mais pede"):
+        st.markdown("\n".join(f"- {tec} — {n} vagas" for tec, n in analise.mercado))
 
 
 # ── Etapa 5: Gupy ────────────────────────────────────────────────────────────

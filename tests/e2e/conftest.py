@@ -34,17 +34,28 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(scope="session")
-def browser():
-    """Chromium headless para toda a sessão. Pula se o browser não estiver instalado."""
-    playwright = pytest.importorskip("playwright.sync_api", reason="playwright não instalado")
+def playwright_sync():
+    """Uma instância de `sync_playwright` para a sessão inteira.
 
+    Só pode haver uma por thread: um segundo `sync_playwright()` enquanto o
+    primeiro está aberto falha com "Sync API inside the asyncio loop". Todo
+    fixture que lança navegador — o `browser` padrão e o contexto com a extensão
+    carregada — parte desta.
+    """
+    playwright = pytest.importorskip("playwright.sync_api", reason="playwright não instalado")
     with playwright.sync_playwright() as pw:
-        try:
-            navegador = pw.chromium.launch(headless=True)
-        except Exception as exc:
-            pytest.skip(f"Chromium indisponível ({exc}). Rode: playwright install chromium")
-        yield navegador
-        navegador.close()
+        yield pw
+
+
+@pytest.fixture(scope="session")
+def browser(playwright_sync):
+    """Chromium headless para toda a sessão. Pula se o browser não estiver instalado."""
+    try:
+        navegador = playwright_sync.chromium.launch(headless=True)
+    except Exception as exc:
+        pytest.skip(f"Chromium indisponível ({exc}). Rode: playwright install chromium")
+    yield navegador
+    navegador.close()
 
 
 @pytest.fixture

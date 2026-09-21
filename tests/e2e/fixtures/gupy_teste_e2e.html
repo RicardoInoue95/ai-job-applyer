@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Formulário mínimo para o teste de ponta a ponta da extensão. Perguntas
+     INVENTADAS de propósito: o teste grava respostas para elas no banco real e
+     precisa ter certeza de que não está sobrescrevendo uma resposta sua.
+     Estrutura igual à de `gupy_dados_adicionais.html`: legend no fieldset,
+     input com atributo `label=`. -->
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Candidatura</title></head>
+<body>
+  <h1>Dados adicionais</h1>
+  <fieldset>
+    <legend>Você aceita participar do teste e2e da extensão?</legend>
+    <label><input type="radio" name="e2e_aceite" value="on" id="e2e_sim"> Sim</label>
+    <label><input type="radio" name="e2e_aceite" value="on" id="e2e_nao"> Não</label>
+  </fieldset>
+  <label for="e2e_cor">Qual a cor de teste e2e da extensão?</label>
+  <input type="text" id="e2e_cor" name="e2e_cor" label="Qual a cor de teste e2e da extensão?">
+  <label for="e2e_livre">Pergunta de teste e2e sem resposta no banco?</label>
+  <input type="text" id="e2e_livre" name="e2e_livre" label="Pergunta de teste e2e sem resposta no banco?">
+</body>
+</html>

@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "AI Job Applier — assistente de preenchimento",
-  "version": "0.1.0",
-  "description": "Preenche formulário de candidatura na sessão que você já abriu. Não envia nada.",
+  "version": "0.2.0",
+  "description": "Preenche formulário de candidatura na sessão que você já abriu, e lê o seu perfil do LinkedIn quando você pede. Não envia nada.",
   "permissions": [
     "activeTab",
+    "sidePanel",
     "storage"
   ],
   "host_permissions": [
@@ -13,7 +14,8 @@
     "https://job-boards.greenhouse.io/*",
     "https://boards.greenhouse.io/*",
     "https://jobs.lever.co/*",
-    "https://*.inhire.app/*"
+    "https://*.inhire.app/*",
+    "https://www.linkedin.com/in/*"
   ],
   "content_scripts": [
     {
@@ -29,9 +31,24 @@
         "conteudo.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.linkedin.com/in/*"
+      ],
+      "js": [
+        "linkedin.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "background": {
     "service_worker": "fundo.js"
+  },
+  "side_panel": {
+    "default_path": "painel/index.html"
+  },
+  "action": {
+    "default_title": "AI Job Applier — abrir painel"
   }
 }

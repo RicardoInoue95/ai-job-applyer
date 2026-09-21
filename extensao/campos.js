@@ -105,10 +105,17 @@ function opcoesDe(campo) {
       .filter((i) => grupoDe(i) === grupo);
     // O `seletor` da opção vai junto porque o checkbox da Gupy não tem `value`:
     // todos valem "on", e casar por valor marcaria o primeiro da lista.
-    return irmaos.map((r) => ({
-      label: rotuloDeOpcao(r), value: r.value,
-      seletor: r.name ? `[name="${r.name}"]` : "",
-    }));
+    //
+    // E o `indice` vai junto porque o seletor sozinho não bastava: rádios do
+    // mesmo grupo dividem o `name`, então `[name="grupo"]` era idêntico para
+    // "Sim" e "Não" e `querySelector` devolvia sempre o primeiro. Com a
+    // resposta "Não" vinda do banco e `value="no"` no rádio, marcava "Sim".
+    return irmaos.map((r) => {
+      const seletor = r.name ? `[name="${r.name}"]` : "";
+      const indice = seletor
+        ? [...document.querySelectorAll(seletor)].indexOf(r) : -1;
+      return { label: rotuloDeOpcao(r), value: r.value, seletor, indice };
+    });
   }
   return [];
 }

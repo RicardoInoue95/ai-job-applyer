@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- Perfil do LinkedIn, SINTÉTICO. Reproduz a estrutura que `extensao/linkedin.js`
+     lê — âncora vazia (#about, #experience, #skills, #education) no início de
+     cada <section>, itens em li.artdeco-list__item, e o texto duplicado num
+     <span aria-hidden="true"> ao lado de um <span class="visually-hidden"> —
+     sem ser a captura de um perfil real, que traria dado pessoal para o
+     repositório. Se o LinkedIn mudar a estrutura, quem avisa é o aviso da
+     extensão ("título — · 0 experiências"), e esta fixture é atualizada junto. -->
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Fulano de Tal | LinkedIn</title></head>
+<body>
+<main>
+  <section class="artdeco-card pv-top-card">
+    <div class="pv-text-details__left-panel">
+      <h1>Fulano de Tal</h1>
+      <div class="text-body-medium break-words">Coordenador de Dados | SQL, Python, Power BI</div>
+    </div>
+  </section>
+
+  <section class="artdeco-card">
+    <div id="about" class="pv-profile-card__anchor"></div>
+    <h2><span aria-hidden="true">Sobre</span><span class="visually-hidden">Sobre</span></h2>
+    <div class="inline-show-more-text">
+      <span aria-hidden="true">Engenheiro de Dados com dois anos em pipelines em Snowflake e Azure Data Factory.</span>
+      <span class="visually-hidden">Engenheiro de Dados com dois anos em pipelines em Snowflake e Azure Data Factory.</span>
+    </div>
+  </section>
+
+  <section class="artdeco-card">
+    <div id="experience" class="pv-profile-card__anchor"></div>
+    <h2><span aria-hidden="true">Experiência</span></h2>
+    <ul>
+      <li class="artdeco-list__item">
+        <div class="t-bold"><span aria-hidden="true">Coordenador de Dados</span><span class="visually-hidden">Coordenador de Dados</span></div>
+        <span class="t-normal"><span aria-hidden="true">Acme · Tempo integral</span><span class="visually-hidden">Acme · Tempo integral</span></span>
+        <span class="t-black--light"><span aria-hidden="true">ago de 2025 - o momento · 1 ano 2 meses</span><span class="visually-hidden">ago de 2025 - o momento · 1 ano 2 meses</span></span>
+        <span class="t-black--light"><span aria-hidden="true">São Paulo, Brasil</span></span>
+        <div class="inline-show-more-text"><span aria-hidden="true">Pipelines ETL/ELT em Databricks e Snowflake.</span></div>
+      </li>
+      <li class="artdeco-list__item">
+        <div class="t-bold"><span aria-hidden="true">Analista Pleno de BI</span><span class="visually-hidden">Analista Pleno de BI</span></div>
+        <span class="t-normal"><span aria-hidden="true">Beta BI · Tempo integral</span></span>
+        <span class="t-black--light"><span aria-hidden="true">mai de 2024 - jul de 2025 · 1 ano 3 meses</span></span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="artdeco-card">
+    <div id="education" class="pv-profile-card__anchor"></div>
+    <h2><span aria-hidden="true">Formação acadêmica</span></h2>
+    <ul>
+      <li class="artdeco-list__item">
+        <div class="t-bold"><span aria-hidden="true">FIAP</span><span class="visually-hidden">FIAP</span></div>
+        <span class="t-normal"><span aria-hidden="true">Tecnólogo, Defesa Cibernética</span></span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="artdeco-card">
+    <div id="skills" class="pv-profile-card__anchor"></div>
+    <h2><span aria-hidden="true">Competências</span></h2>
+    <ul>
+      <li class="artdeco-list__item"><div class="t-bold"><span aria-hidden="true">SQL</span><span class="visually-hidden">SQL</span></div></li>
+      <li class="artdeco-list__item"><div class="t-bold"><span aria-hidden="true">Power BI</span><span class="visually-hidden">Power BI</span></div></li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

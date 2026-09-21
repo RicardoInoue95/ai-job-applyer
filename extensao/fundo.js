@@ -32,7 +32,7 @@ async function chamar(caminho, opcoes) {
 }
 
 const ROTAS = { responder: "/responder", aprender: "/aprender",
-                vincular: "/vincular" };
+                vincular: "/vincular", perfil_linkedin: "/perfil_linkedin" };
 
 // Qual vaga estava aberta em cada aba. A URL do formulário da Gupy não carrega
 // o `jobId`; a da página pública carrega, e é por ela que o candidato passa
@@ -66,7 +66,8 @@ chrome.runtime.onMessage.addListener((msg, remetente, responder) => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: msg.url, campos: msg.campos,
-                           sinais: msg.sinais || {}, vaga_id: msg.vaga_id }),
+                           sinais: msg.sinais || {}, vaga_id: msg.vaga_id,
+                           perfil: msg.perfil }),
   })
     .then((dados) => responder({ ok: true, dados }))
     .catch((e) => responder({ ok: false, erro: String(e.message),
@@ -75,3 +76,12 @@ chrome.runtime.onMessage.addListener((msg, remetente, responder) => {
   // Sem isto o canal fecha antes do await e a resposta se perde.
   return true;
 });
+
+// ── Painel lateral ────────────────────────────────────────────────────────────
+// Clicar no ícone abre o painel na janela atual. `setPanelBehavior` faz o
+// Chrome cuidar disso sozinho: sem ele seria preciso um handler de `onClicked`
+// chamando `sidePanel.open`, que exige gesto do usuário e falha em silêncio
+// quando não há.
+chrome.sidePanel
+  ?.setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((e) => console.warn("[AI Job Applier] painel lateral:", e));

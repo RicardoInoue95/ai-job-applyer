@@ -89,8 +89,27 @@ def test_o_aviso_distingue_a_causa_da_falha():
         "o service worker engoliu o status; 404 e backend fora do ar chegam "
         "iguais ao aviso")
     conteudo = _codigo("conteudo.js")
-    assert "status === 404" in conteudo, "vaga fora do acervo sem aviso próprio"
-    assert "status === -1" in conteudo, "extensão desatualizada sem aviso próprio"
+    # A distinção por causa mudou de lugar, não sumiu: o texto de cada falha
+    # vem do catálogo do Python (`jobapplier/erros.py`), que sabe qual foi.
+    assert "avisoDoErro" in conteudo, "o aviso não lê o erro do backend"
+    assert "erro.acao" in conteudo, (
+        "o aviso mostra o que houve e não o que fazer — a ação é a metade que "
+        "importa para quem está cansado")
+    # Os dois que o backend NÃO pode informar, porque nos dois ele não respondeu.
+    assert "status === -1" in conteudo, "service worker mudo sem aviso próprio"
+    assert "api-fora" in conteudo, "API fora do ar sem aviso próprio"
+
+
+def test_a_extensao_nao_reescreve_mensagem_do_catalogo():
+    """Mensagem duplicada em JavaScript diverge do backend no primeiro dia.
+    Fora os três erros locais — os que acontecem quando o Python não responde —
+    nenhum texto de erro nasce aqui."""
+    conteudo = _codigo("conteudo.js")
+    locais = conteudo[conteudo.index("const LOCAIS"):conteudo.index("function erroDaFalha")]
+    fora = conteudo.replace(locais, "")
+    for proibido in ("Vaga fora do acervo", "não achou esta vaga",
+                     "Rode `python run.py`", "chrome://extensions"):
+        assert proibido not in fora, f"texto de erro fixo no JS: {proibido}"
 
 
 def test_o_aviso_nao_realimenta_o_observador():
@@ -124,7 +143,59 @@ def test_so_roda_em_plataforma_de_vaga():
         for padrao in bloco["matches"]:
             assert padrao != "<all_urls>"
             assert any(p in padrao for p in
-                       ("gupy.io", "greenhouse.io", "lever.co", "inhire.app"))
+                       ("gupy.io", "greenhouse.io", "lever.co", "inhire.app",
+                        "linkedin.com/in/"))
+
+
+# ── LinkedIn: só o perfil, só leitura ────────────────────────────────────────
+# A permissão em linkedin.com existe para UMA coisa: ler o perfil do candidato
+# quando ele clica. Vaga e Easy Apply ficam fora (invariante 6), e o script de
+# preenchimento nunca é carregado lá.
+
+def _blocos_linkedin():
+    return [b for b in MANIFEST["content_scripts"]
+            if any("linkedin" in m for m in b["matches"])]
+
+
+def test_linkedin_so_na_pagina_de_perfil():
+    blocos = _blocos_linkedin()
+    assert blocos, "linkedin.js não está registrado"
+    for bloco in blocos:
+        for padrao in bloco["matches"]:
+            assert padrao.startswith("https://www.linkedin.com/in/"), padrao
+            assert "/jobs" not in padrao
+    for host in MANIFEST["host_permissions"]:
+        if "linkedin" in host:
+            assert host == "https://www.linkedin.com/in/*", host
+
+
+def test_no_linkedin_so_carrega_o_leitor_de_perfil():
+    """`conteudo.js` preenche formulário. No LinkedIn não há formulário a
+    preencher — só o Easy Apply, que fica fora por decisão."""
+    for bloco in _blocos_linkedin():
+        assert bloco["js"] == ["linkedin.js"], bloco["js"]
+
+
+def test_leitor_de_perfil_nao_preenche_nem_clica():
+    codigo = _codigo("linkedin.js")
+    for proibido in (".click()", ".submit()", "requestSubmit", ".value =",
+                     "dispatchEvent", "easy-apply", "jobs-apply"):
+        assert proibido not in codigo, f"linkedin.js: {proibido}"
+    for proibido in ("2captcha", "anticaptcha", "hcaptcha", "grecaptcha",
+                     "navigator.webdriver"):
+        assert proibido not in codigo.lower()
+
+
+def test_leitor_de_perfil_so_age_por_clique():
+    """A leitura é disparada pelo botão, não ao carregar a página: o candidato
+    decide quando o perfil sai da aba dele."""
+    codigo = _codigo("linkedin.js")
+    assert 'addEventListener("click"' in codigo
+    assert "lerPerfil()" in codigo
+    # Nenhuma chamada ao envio fora do handler do botão.
+    fora = [ln for ln in codigo.splitlines()
+            if "sendMessage" in ln and "perfil_linkedin" in ln]
+    assert len(fora) == 1, fora
 
 
 def test_backend_e_so_loopback():

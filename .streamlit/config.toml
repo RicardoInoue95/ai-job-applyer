@@ -1,0 +1,16 @@
+# Tema travado em claro. Os tokens de ui/_ui.py são fixos em claro; deixar o
+# Streamlit seguir o tema do sistema pintava de preto o que é dele (cabeçalho,
+# barras de progresso, inputs) e deixava o resto branco. As cores abaixo são as
+# MESMAS dos tokens — mudar uma sem a outra descola o chrome do conteúdo.
+[theme]
+base = "light"
+primaryColor = "#4F46E5"            # --acao
+backgroundColor = "#F7F8FA"         # --fundo
+secondaryBackgroundColor = "#FFFFFF" # --superficie
+textColor = "#475467"               # --txt-2
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

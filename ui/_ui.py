@@ -62,12 +62,19 @@ CSS = """
 
   /* ── Chrome do Streamlit ──────────────────────────────────────────────── */
   /* "Deploy", menu de hambúrguer e rodapé "Made with Streamlit" não são do
-     produto e confundem quem usa. */
-  [data-testid="stToolbar"], [data-testid="stDecoration"],
+     produto e confundem quem usa. `stToolbar` NÃO entra na lista: é onde vive
+     o botão de reabrir a barra lateral recolhida — escondê-la deixava o
+     usuário sem caminho de volta. Deploy e menu já saem por
+     `client.toolbarMode = "minimal"` em .streamlit/config.toml. */
+  [data-testid="stDecoration"], [data-testid="stMainMenu"],
   #MainMenu, footer, [data-testid="stStatusWidget"] { display: none !important; }
 
   .stApp { background: var(--fundo); }
-  [data-testid="stMainBlockContainer"] { padding-top: 2.2rem; max-width: 1180px; }
+  /* O cabeçalho é fixo, transparente e mais alto que o padding antigo (2.2rem):
+     o título de toda página ficava cortado embaixo dele. Ele ganha o fundo da
+     página e o container começa abaixo dele. */
+  [data-testid="stHeader"] { background: var(--fundo); }
+  [data-testid="stMainBlockContainer"] { padding-top: 3.75rem; max-width: 1180px; }
 
   /* ── Tipografia ───────────────────────────────────────────────────────── */
   html, body, [class*="st-"] { color: var(--txt-2); }
@@ -214,6 +221,16 @@ CSS = """
   .stTextInput input, .stNumberInput input, .stTextArea textarea,
   .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
     font-size: var(--txt-apoio); border-radius: var(--raio-p);
+  }
+  /* Chips do multiselect. O Streamlit pinta o fundo com primaryColor e o
+     texto herdava o --txt-2 da regra global: cinza sobre índigo, ~1,5:1 de
+     contraste. Mesmo par do cartão em destaque, ~6,7:1. */
+  .stMultiSelect [data-baseweb="tag"] {
+    background: var(--acao-suave) !important; color: var(--acao) !important;
+    border: 1px solid #C7D2FE;
+  }
+  .stMultiSelect [data-baseweb="tag"] span, .stMultiSelect [data-baseweb="tag"] svg {
+    color: var(--acao) !important; fill: var(--acao);
   }
   [data-testid="stWidgetLabel"] p {
     font-size: var(--txt-meta) !important; font-weight: 600; color: var(--txt-3);
