@@ -86,6 +86,13 @@ def _render_progress(current: int):
     st.divider()
 
 
+def _no_assistente() -> bool:
+    """Os botões Voltar/Avançar/Pular só existem no assistente. No modo
+    ajuste cada seção salva sozinha, e "Avançar" em índigo ao lado de
+    "Salvar" era uma segunda ação primária sem sentido (auditoria de UI)."""
+    return not st.session_state.get("modo_ajuste", False)
+
+
 def _advance(step: int):
     st.session_state.setup_step = step + 1
     config.set("setup_progress", "last_step", value=step + 1)
@@ -197,7 +204,7 @@ def step_1():
             st.error(msg, icon=":material/error:")
             st.session_state["llm_key_ok"] = False
 
-    if st.session_state.get("llm_key_ok") or chave_atual:
+    if (st.session_state.get("llm_key_ok") or chave_atual) and _no_assistente():
         st.button(
             "Avançar", on_click=_advance, args=(1,),
             type="primary" if st.session_state.get("llm_key_ok") else "secondary",
@@ -212,26 +219,44 @@ def step_2():
 
     from jobapplier.llm import provedores_configurados
 
-    if not provedores_configurados():
-        st.error("Configure um provedor de IA na Etapa 1 primeiro.")
-        st.button("Voltar", on_click=_back, args=(2,))
-        return
-
+    # O currículo atual aparece sempre: é o mestre (invariante 11) e a seção
+    # existe para ele. Só a *substituição* precisa de IA — antes, sem chave,
+    # a seção inteira virava um erro vermelho e nem dizia o que está em uso.
     existing = DATA_DIR / "resume.json"
     if existing.exists() and not st.session_state.get("reenviar_curriculo"):
         with open(existing, encoding="utf-8") as f:
             saved_resume = json.load(f)
-        st.success(f"✓ Currículo já configurado: **{saved_resume.get('nome', '?')}**")
-        st.caption(f"{len(saved_resume.get('experiencias', []))} experiências · {len(saved_resume.get('tecnologias', []))} tecnologias")
+        from jobapplier.tempo import de_timestamp
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Usar este currículo →", type="primary"):
-                _advance(2)
-        with col2:
-            if st.button("Reenviar outro currículo"):
-                st.session_state["reenviar_curriculo"] = True
-                st.rerun()
+        quando = de_timestamp(existing.stat().st_mtime).strftime("%d/%m/%Y")
+        st.success(f"✓ Currículo em uso: **{saved_resume.get('nome', '?')}**")
+        st.caption(f"{len(saved_resume.get('experiencias', []))} experiências · "
+                   f"{len(saved_resume.get('tecnologias', []))} tecnologias · "
+                   f"atualizado em {quando}")
+
+        if _no_assistente():
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Usar este currículo →", type="primary"):
+                    _advance(2)
+            with col2:
+                if st.button("Reenviar outro currículo"):
+                    st.session_state["reenviar_curriculo"] = True
+                    st.rerun()
+        elif st.button("Substituir currículo", icon=":material/upload:"):
+            st.session_state["reenviar_curriculo"] = True
+            st.rerun()
+        return
+
+    if not provedores_configurados():
+        st.warning("Substituir o currículo usa IA para ler o PDF. Configure um "
+                   "provedor em **Provedor de IA** e volte aqui.",
+                   icon=":material/info:")
+        if st.session_state.get("reenviar_curriculo") and st.button("Cancelar"):
+            st.session_state["reenviar_curriculo"] = False
+            st.rerun()
+        if _no_assistente():
+            st.button("Voltar", on_click=_back, args=(2,))
         return
 
     uploaded = st.file_uploader(
@@ -283,10 +308,10 @@ def step_2():
                     st.error(f"Erro ao analisar currículo: {exc}")
                     st.session_state["resume_ok"] = False
 
-    if st.session_state.get("resume_ok"):
-        st.button("Avançar", on_click=_advance, args=(2,), type="primary")
-
-    st.button("Voltar", on_click=_back, args=(2,))
+    if _no_assistente():
+        if st.session_state.get("resume_ok"):
+            st.button("Avançar", on_click=_advance, args=(2,), type="primary")
+        st.button("Voltar", on_click=_back, args=(2,))
 
 
 # ── Etapa 3: Preferências de Busca ──────────────────────────────────────────
@@ -468,10 +493,13 @@ def step_3():
     # transformam a tela num gerenciador de etiquetas. Lê-se os primeiros e
     # "+ 96 outras"; quem quer mexer abre o editor. Dentro dele, chips com
     # `accept_new_options` — digitar um valor novo e Enter o acrescenta.
-    def _chips(rotulo, valores, chave, ajuda=None, mostrar=5):
+    def _chips(rotulo, valores, chave, ajuda=None, mostrar=5, ocultar_no_resumo=()):
         valores = list(valores)
-        resto = len(valores) - mostrar
-        resumo = ", ".join(valores[:mostrar]) + (f" e mais {resto}" if resto > 0 else "")
+        # "Remoto"/"Remote"/"Brasil" ficam na lista por compatibilidade
+        # (`locais_alvo()` os descarta), mas num resumo de "cidades" mentem.
+        visiveis = [v for v in valores if v not in ocultar_no_resumo]
+        resto = len(visiveis) - mostrar
+        resumo = ", ".join(visiveis[:mostrar]) + (f" e mais {resto}" if resto > 0 else "")
         st.markdown(f'<div class="rotulo-campo">{rotulo}</div>'
                     f'<div class="resumo-campo">{resumo or "—"}</div>',
                     unsafe_allow_html=True)
@@ -492,7 +520,8 @@ def step_3():
                 saved.get("localizacoes_alvo", ["São Paulo", "Remoto", "Remote"]),
                 "chips_localizacoes",
                 ajuda="Remoto ignora esta lista. Presencial fora dela zera a "
-                      "nota de localização; híbrido leva 40%.")
+                      "nota de localização; híbrido leva 40%.",
+                ocultar_no_resumo=("Remoto", "Remote", "Brasil", "Brazil"))
         with col2:
             modalidade = st.selectbox(
                 "Modalidade preferida",
@@ -712,21 +741,28 @@ def step_3():
                 config.save(cfg)
                 st.success("✓ Pretensão salva!")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("Voltar", on_click=_back, args=(3,))
-    with col2:
-        if st.session_state.get("prefs_ok") or saved:
-            st.button("Avançar", on_click=_advance, args=(3,), type="primary")
+    if _no_assistente():
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button("Voltar", on_click=_back, args=(3,))
+        with col2:
+            if st.session_state.get("prefs_ok") or saved:
+                st.button("Avançar", on_click=_advance, args=(3,), type="primary")
 
 
 # ── Etapa 4: LinkedIn ────────────────────────────────────────────────────────
 
 def step_4():
-    st.markdown("#### LinkedIn Easy Apply")
+    st.markdown("#### LinkedIn")
+    # Copy honesta: a sessão serve para COLETAR vagas e ler o seu perfil; o
+    # envio no LinkedIn é seu (invariante 6). A versão anterior prometia
+    # "automatizar o Easy Apply (até 10 vagas/dia)" — o que o produto,
+    # deliberadamente, não faz.
     st.markdown(
-        "Configure o LinkedIn para automatizar o Easy Apply (até **10 vagas/dia**). "
-        "As credenciais ficam salvas localmente — nunca são enviadas a terceiros."
+        "A sessão salva serve para coletar vagas do LinkedIn e analisar o seu "
+        "perfil. O envio de candidatura no LinkedIn é sempre seu — o sistema "
+        "prepara o dossiê, você clica. As credenciais ficam salvas localmente e "
+        "nunca são enviadas a terceiros."
     )
 
     from jobapplier.applicators.linkedin import SESSION_PATH, check_session_valid, has_session
@@ -806,12 +842,13 @@ def step_4():
     st.divider()
     _secao_perfil_linkedin()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("Voltar", on_click=_back, args=(4,))
-    with col2:
-        st.button("Avançar" if session_valid else "Pular por ora →",
-                  on_click=_advance, args=(4,), type="primary")
+    if _no_assistente():
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button("Voltar", on_click=_back, args=(4,))
+        with col2:
+            st.button("Avançar" if session_valid else "Pular por ora →",
+                      on_click=_advance, args=(4,), type="primary")
 
 
 _ROTULO_AREA = {"fato": "Fato", "experiencia": "Experiência", "titulo": "Título",
@@ -913,7 +950,7 @@ def _secao_perfil_linkedin() -> None:
 # ── Etapa 5: Gupy ────────────────────────────────────────────────────────────
 
 def step_5():
-    st.markdown("#### Gupy")
+    st.markdown("#### Plataformas")
     st.markdown(
         "O **Gupy** é a plataforma de vagas mais usada no Brasil. "
         "Configure empresas-alvo pelo slug (ex.: `nubank`, `itau`) e palavras-chave de busca."
@@ -951,18 +988,19 @@ def step_5():
     st.divider()
     st.caption("A coleta Gupy acontece automaticamente a cada 2 horas junto com Greenhouse e Lever.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.button("Voltar", on_click=_back, args=(5,))
-    with col2:
-        st.button("Avançar" if saved_gupy or saved_keywords else "Pular por ora →",
-                  on_click=_advance, args=(5,), type="primary")
+    if _no_assistente():
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button("Voltar", on_click=_back, args=(5,))
+        with col2:
+            st.button("Avançar" if saved_gupy or saved_keywords else "Pular por ora →",
+                      on_click=_advance, args=(5,), type="primary")
 
 
 # ── Etapa 6: E-mail ──────────────────────────────────────────────────────────
 
 def step_6():
-    st.markdown("#### Notificações por E-mail")
+    st.markdown("#### Notificações")
     st.markdown("Configure o envio de relatórios diários por e-mail. Pode ser pulado.")
 
     saved = config.get("email") or {}
@@ -1022,14 +1060,15 @@ def step_6():
                 except Exception as exc:
                     st.error(f"Erro: {exc}")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.button("Voltar", on_click=_back, args=(6,))
-    with col2:
-        st.button("Pular", on_click=_advance, args=(6,))
-    with col3:
-        if saved:
-            st.button("Avançar", on_click=_advance, args=(6,), type="primary")
+    if _no_assistente():
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.button("Voltar", on_click=_back, args=(6,))
+        with col2:
+            st.button("Pular", on_click=_advance, args=(6,))
+        with col3:
+            if saved:
+                st.button("Avançar", on_click=_advance, args=(6,), type="primary")
 
 
 def _test_smtp(cfg: dict) -> tuple[bool, str]:
@@ -1240,6 +1279,7 @@ STEP_HANDLERS[10] = _secao_respostas
 
 
 def _modo_assistente() -> None:
+    st.session_state["modo_ajuste"] = False
     _init_session()
     passo = st.session_state.setup_step
     _ui.cabecalho("Configuração inicial",
@@ -1260,6 +1300,7 @@ def _modo_ajuste() -> None:
     # mesmo rótulo — chave duplicada, página quebrada. Renderizar só a
     # escolhida também evita seis consultas ao banco e à API a cada
     # carregamento. E vertical porque nove rótulos numa linha não cabem.
+    st.session_state["modo_ajuste"] = True
     rotulos = [s[0] for s in SECOES]
     nav, conteudo = st.columns([1.15, 3.6], gap="large")
     with nav, st.container(key="nav-config"):
@@ -1275,14 +1316,9 @@ def _modo_ajuste() -> None:
                         f'<div class="meta-linha">{descricao}</div>',
                         unsafe_allow_html=True)
             st.markdown("")
-        # As funções de etapa desenham os botões "Voltar/Próximo" do
-        # assistente. Aqui não fazem sentido, mas removê-los exigiria mexer nas
-        # sete — e esta é a página que guarda credencial e currículo. Uma
-        # legenda custa menos que o risco de quebrar a configuração inicial.
+        # As etapas checam `_no_assistente()` e não desenham Voltar/Avançar
+        # aqui: cada seção salva sozinha.
         STEP_HANDLERS[passo]()
-        if passo <= 7:
-            st.caption("Cada seção salva sozinha; os botões Voltar/Próximo "
-                       "pertencem ao assistente inicial e podem ser ignorados.")
 
     # Refazer do zero é a única ação destrutiva da página: fica no rodapé do
     # conteúdo, discreta, e pede confirmação — não ao lado da navegação.

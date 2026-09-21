@@ -61,38 +61,52 @@ def _rotulo_status(codigo: str) -> str:
 _FAIXAS = {0: "Aderência", 65: "65%+", 75: "75%+", 80: "80%+", 85: "85%+"}
 _SENIORIDADES = ["Júnior", "Pleno", "Sênior", "Especialista", "Líder"]
 
-c1, c2, c3, c4, c5 = st.columns([1.7, 1.3, 1.05, 1.15, 1.15])
+# Chaves fixas para que "Limpar filtros" consiga zerar tudo num clique.
+_PADRAO = {"f_busca": "", "f_status": _OPCOES[0], "f_aderencia": 0,
+           "f_modalidades": [], "f_plataformas": [], "f_local": "",
+           "f_senioridades": [], "f_descartadas": False}
+
+
+def _limpar_filtros() -> None:
+    for chave, valor in _PADRAO.items():
+        st.session_state[chave] = valor
+
+
+filtros = st.container(key="filtros")
+with filtros:
+    c1, c2, c3, c4, c5 = st.columns([1.7, 1.3, 1.05, 1.15, 1.15])
 with c1:
     busca = st.text_input("Buscar", placeholder="Título ou empresa",
-                          label_visibility="collapsed")
+                          label_visibility="collapsed", key="f_busca")
 with c2:
-    status_filter = st.selectbox("Status", _OPCOES, index=0,
+    status_filter = st.selectbox("Status", _OPCOES,
                                  format_func=_rotulo_status,
-                                 label_visibility="collapsed")
+                                 label_visibility="collapsed", key="f_status")
 with c3:
-    aderencia_min = st.selectbox("Aderência", list(_FAIXAS), index=0,
+    aderencia_min = st.selectbox("Aderência", list(_FAIXAS),
                                  format_func=_FAIXAS.__getitem__,
-                                 label_visibility="collapsed")
+                                 label_visibility="collapsed", key="f_aderencia")
 with c4:
     modalidades = st.multiselect("Modalidade", ["remoto", "híbrido", "presencial"],
                                  placeholder="Modalidade",
                                  format_func=str.capitalize,
-                                 label_visibility="collapsed")
+                                 label_visibility="collapsed", key="f_modalidades")
 with c5:
     plataformas = st.multiselect(
         "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire", "lever"],
         placeholder="Plataforma", format_func=str.title,
-        label_visibility="collapsed")
+        label_visibility="collapsed", key="f_plataformas")
 
 with st.expander("Mais filtros"):
     m1, m2, m3 = st.columns([1, 1, 1.4], vertical_alignment="bottom")
     with m1:
-        localizacao_busca = st.text_input("Localização", placeholder="Cidade")
+        localizacao_busca = st.text_input("Localização", placeholder="Cidade", key="f_local")
     with m2:
-        senioridades = st.multiselect("Senioridade", _SENIORIDADES, placeholder="Todas")
+        senioridades = st.multiselect("Senioridade", _SENIORIDADES, placeholder="Todas",
+                                      key="f_senioridades")
     with m3:
         mostrar_filtradas = st.checkbox(
-            "Incluir vagas descartadas pelos filtros", value=False,
+            "Incluir vagas descartadas pelos filtros", key="f_descartadas",
             help="Vagas que não passaram nos filtros 4A/4B. Úteis para conferir "
                  "se o filtro está cortando demais.")
 
@@ -153,6 +167,31 @@ def _rejeitar(vaga_id: int, score_val: float | None):
 
 vagas = _get_vagas(status_filter, busca)
 
+# Filtros ativos como chips — também no estado vazio, que é justamente
+# quando se pergunta "por que não vejo nada?".
+ativos = [
+    *(f"“{busca.strip()}”" for _ in [0] if busca.strip()),
+    *([_rotulo_status(status_filter)] if status_filter != "aguardando você" else []),
+    *([_FAIXAS[aderencia_min]] if aderencia_min else []),
+    *(m.capitalize() for m in modalidades),
+    *(p.title() for p in plataformas),
+    *([localizacao_busca.strip()] if localizacao_busca.strip() else []),
+    *senioridades,
+    *(["descartadas incluídas"] if mostrar_filtradas else []),
+]
+
+
+def _linha_de_contagem(n: int) -> None:
+    rotulo = (f"{n} vaga{'s' if n != 1 else ''}, por aderência" if n
+              else "Nenhuma vaga")
+    st.markdown(
+        f'<div class="vaga-meta" style="margin:var(--e2) 0 var(--e3)">'
+        f'<span>{rotulo}</span>'
+        + ("".join(_ui.badge(x) for x in ativos) if ativos else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+
 # ── Ações em lote ─────────────────────────────────────────────────────────────
 
 if status_filter == "pendente" and vagas:
@@ -172,27 +211,15 @@ if status_filter == "pendente" and vagas:
 # ── Lista ─────────────────────────────────────────────────────────────────────
 
 if not vagas:
+    _linha_de_contagem(0)
     _ui.vazio("Nenhuma vaga com esses filtros",
               "Tente afrouxar a busca, o status ou a aderência mínima.")
+    if ativos:
+        st.button("Limpar filtros", icon=":material/filter_alt_off:",
+                  type="tertiary", on_click=_limpar_filtros)
     st.stop()
 
-ativos = [
-    *(f"“{busca.strip()}”" for _ in [0] if busca.strip()),
-    *([_rotulo_status(status_filter)] if status_filter != "aguardando você" else []),
-    *([_FAIXAS[aderencia_min]] if aderencia_min else []),
-    *(m.capitalize() for m in modalidades),
-    *(p.title() for p in plataformas),
-    *([localizacao_busca.strip()] if localizacao_busca.strip() else []),
-    *senioridades,
-    *(["descartadas incluídas"] if mostrar_filtradas else []),
-]
-st.markdown(
-    f'<div class="vaga-meta" style="margin:var(--e2) 0 var(--e3)">'
-    f'<span>{len(vagas)} vaga{"s" if len(vagas) != 1 else ""}, por aderência</span>'
-    + ("".join(_ui.badge(x) for x in ativos) if ativos else "")
-    + "</div>",
-    unsafe_allow_html=True,
-)
+_linha_de_contagem(len(vagas))
 
 lista = st.container(key="lista")
 for vaga in vagas:
@@ -248,9 +275,10 @@ for vaga in vagas:
             # de outro jeito em Revisar — a mesma vaga explicada de duas formas.
             if a.get("atencao"):
                 st.markdown(f"⚠ {a['atencao']}")
+            # Sem "A vaga pede: …": repetia 9 dos 12 chips acima. O que a
+            # vaga pede e o currículo cobre está nos chips; o que falta, em
+            # "Não cita".
             _ui.evidencia(a)
-            if normalizado.get("tecnologias"):
-                st.caption("A vaga pede: " + ", ".join(normalizado["tecnologias"][:12]))
             # Nível 3, só aqui.
             coletada = vaga.criado_em.strftime("%d/%m/%Y") if vaga.criado_em else "—"
             st.caption(f"{(vaga.plataforma or '').title()} · vaga {vaga.id} · "

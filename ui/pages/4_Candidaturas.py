@@ -127,6 +127,11 @@ for vaga_id, empresa, titulo, em in enviadas:
 _ui.secao("Histórico")
 
 TODOS = "Todos os status"
+# Padrão: envios e o que pede atenção. "Preparada, não enviada" são 280 das
+# 300 linhas — simulações do modo sombra — e escondiam as 11 que contam.
+ENVIOS_E_ATENCAO = "Envios e atenção"
+_ENVIOS = ("enviada_confirmada", "revisao_manual", "falha_automacao",
+           "aguardando_verificacao", "enviada", "perguntas_pendentes")
 _codigos = [s.codigo for s in vocab.CANDIDATURA]
 
 f1, f2, f3 = st.columns([1.4, 1.3, 1.3])
@@ -135,8 +140,9 @@ with f1:
                           label_visibility="collapsed")
 with f2:
     filtro_status = st.selectbox(
-        "Status", [TODOS, *_codigos], label_visibility="collapsed",
-        format_func=lambda c: c if c == TODOS else vocab.de_candidatura(c).rotulo)
+        "Status", [ENVIOS_E_ATENCAO, TODOS, *_codigos], label_visibility="collapsed",
+        format_func=lambda c: c if c in (TODOS, ENVIOS_E_ATENCAO)
+        else vocab.de_candidatura(c).rotulo)
 with f3:
     filtro_plataforma = st.multiselect(
         "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire"],
@@ -145,7 +151,9 @@ with f3:
 with get_session() as session:
     q = (session.query(Candidatura, Vaga)
          .join(Vaga, Candidatura.vaga_id == Vaga.id))
-    if filtro_status != TODOS:
+    if filtro_status == ENVIOS_E_ATENCAO:
+        q = q.filter(Candidatura.status.in_(_ENVIOS))
+    elif filtro_status != TODOS:
         q = q.filter(Candidatura.status == filtro_status)
     if filtro_plataforma:
         q = q.filter(Vaga.plataforma.in_(filtro_plataforma))
@@ -170,8 +178,8 @@ if not registros:
               "Revise as vagas em Revisar para começar.")
     st.stop()
 
-st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''} "
-           "(máx. 300)")
+st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''}"
+           + (" (máx. 300)" if len(registros) >= 300 else ""))
 
 # ── Tabela ────────────────────────────────────────────────────────────────────
 # Estruturada, não accordion: o ponto é comparar e localizar, não abrir uma a uma.

@@ -114,3 +114,24 @@ def test_eixo_ausente_nao_e_zero():
 def test_breakdown_como_string_ou_ausente_nao_quebra():
     assert aderencia.analisar(SimpleNamespace(score=70, score_breakdown_json='{"x":')).rotulo
     assert aderencia.analisar(SimpleNamespace(score=None, score_breakdown_json=None)).score == 0
+
+
+def test_motivo_em_frase_nao_vira_chip_nem_entra_no_porque():
+    """Scorer antigo escrevia motivos em frase. Frase não é tecnologia."""
+    a = aderencia.analisar(SimpleNamespace(score=67, score_breakdown_json={
+        "breakdown": {"skills": 20},
+        "motivos_positivos": [
+            "Forte alinhamento tecnológico com Databricks, SQL, Python e ferramentas de visualização.",
+            "Experiência em orquestração de ETL/ELT com Azure Data Factory.",
+        ]}))
+    assert a.cobertas == []
+    assert a.porque.startswith("Forte alinhamento tecnológico")
+    assert "Forte aderência em Forte" not in a.porque
+
+
+def test_e_frase_distingue_tecnologia_de_frase():
+    assert not aderencia._e_frase("Python")
+    assert not aderencia._e_frase("Power BI")
+    assert not aderencia._e_frase("Azure Data Factory")
+    assert aderencia._e_frase("Forte alinhamento tecnológico com Databricks, SQL e Python.")
+    assert aderencia._e_frase("Experiência em empresas do setor de tecnologia")

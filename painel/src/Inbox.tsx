@@ -111,7 +111,7 @@ export function Inbox({ vagas, aoDecidir }: {
         <div className="empresa">{vaga.empresa_exibicao}</div>
         <div className="titulo-vaga">{vaga.titulo}</div>
         <div className="meta">
-          {[vaga.modalidade, vaga.localizacao].filter(Boolean).join(" · ") || vaga.plataforma}
+          {[vaga.localizacao, capitalizar(vaga.modalidade)].filter(Boolean).join(" · ") || vaga.plataforma}
         </div>
 
         {a && (
@@ -154,6 +154,10 @@ export function Inbox({ vagas, aoDecidir }: {
  * tecnologias. Sem barras — cinco barras quase cheias parecem painel de
  * métricas; a palavra se lê, o número confere (mesma régua de `ui/_ui.py`).
  * Carrega só quando aberto — é uma chamada por vaga, e ninguém abre em todas. */
+function capitalizar(t: string | null | undefined): string {
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+}
+
 function palavraDoEixo(pct: number): string {
   if (pct >= 90) return "Excelente";
   if (pct >= 70) return "Forte";

@@ -273,7 +273,12 @@ if st.session_state.get("ultima_decisao") and st.button(
 # numa coluna estreita, ver a ficha exigia rolar e perder o cartão de vista.
 
 # 60/40: a esquerda decide, a direita é a candidatura pronta.
-coluna_vaga, coluna_apoio = st.columns([1.5, 1], gap="large")
+# Contêiner com chave: abaixo de ~1280px o CSS empilha as duas colunas —
+# a 1024 a coluna da candidatura ficava com 195px e o checklist em três
+# linhas (auditoria de UI).
+workspace = st.container(key="workspace")
+with workspace:
+    coluna_vaga, coluna_apoio = st.columns([1.5, 1], gap="large")
 
 with coluna_vaga:
     plataforma = (vaga["plataforma"] or "").title()
@@ -337,6 +342,7 @@ with coluna_vaga:
         _ui.evidencia(vaga["aderencia"])
 
     if vaga["descricao"]:
+        st.write("")
         with st.expander("Descrição completa da vaga"):
             st.write(vaga["descricao"][:6000])
 
@@ -350,7 +356,7 @@ with coluna_vaga:
             st.markdown(
                 "<div style='font-size:.82rem;color:var(--txt-3);padding:.1rem 0'>"
                 f"<span class='num'>{prox['score']:.0f}%</span> · "
-                f"{(prox['titulo'] or '')[:48]} — {prox['empresa'] or '—'}</div>",
+                f"{_ui.titulo_limpo(prox['titulo'])[:48]} — {prox['empresa'] or '—'}</div>",
                 unsafe_allow_html=True,
             )
 
@@ -386,10 +392,9 @@ with coluna_apoio, st.container(key="lado"):
         marca = ("✓" if ok else "—") if ok is not None else "?"
         cor = "var(--ok)" if ok else ("var(--txt-3)" if ok is None else "var(--aviso)")
         st.markdown(
-            f'<div style="display:flex;gap:.6rem;align-items:baseline;'
-            f'padding:.35rem 0;border-bottom:1px solid var(--borda)">'
-            f'<span style="color:{cor};font-weight:650;width:1rem">{marca}</span>'
-            f'<span style="color:var(--txt-1);font-weight:550;width:6.5rem">{nome}</span>'
+            f'<div class="check-linha">'
+            f'<span style="color:{cor};font-weight:650">{marca}</span>'
+            f'<span style="color:var(--txt-1);font-weight:550">{nome}</span>'
             f'<span style="color:var(--txt-3);font-size:var(--txt-apoio)">{nota}</span></div>',
             unsafe_allow_html=True,
         )

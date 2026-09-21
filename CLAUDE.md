@@ -359,6 +359,7 @@ docs/
   REVISAO_BACKEND.md       prompt de revisão de engenharia
   REVISAO_FRONTEND.md      prompt de revisão de UI/UX
   REVISAO_NEGOCIO.md       prompt de revisão de produto
+  DESIGN_QA.md             auditoria de UI medida com Playwright, e o antes/depois
   TUTORIAL_LINKEDIN.md     passo a passo do perfil
   prompt_carreira.md       fatos profissionais — fonte única
   prompt_curriculos.md     regras de currículo por vaga
@@ -967,6 +968,19 @@ feito para celular". O que a captura mostra e a asserção não:
 `scripts/ui_screenshots.py` também imprime a largura do conteúdo. Abaixo de ~70%
 do viewport em página de trabalho, reveja o `layout`.
 
+**Auditoria medida, não só olhada**: `scripts/auditoria_ui.py` percorre as seis
+páginas em seis viewports (1440/1600/1920, 1024, 390/360) e grava em
+`data/screenshots/qa/medidas.json` tipografia, ritmo vertical, botões, inputs,
+cartões, truncamentos, contraste, alvos < 24px, raios, azuis e a ordem de foco.
+Rode antes e depois de mexer na interface e compare. O relatório da primeira
+rodada está em `docs/DESIGN_QA.md`, com o antes/depois do que foi corrigido.
+Duas lições que só a medição pegou: o `stMarkdownContainer` do Streamlit tem
+`margin-bottom: -1rem` (supõe um `<p>` no fim) e, num contêiner com gap
+reduzido, o bloco seguinte invade o HTML anterior — a correção é local, nunca
+global (a global abriu 16px em toda página); e a barra lateral fixa de 300px
+deixa 724px a 1024 — abaixo de 1280px o workspace de Revisar empilha por CSS
+(`.st-key-workspace`) e os filtros de Vagas quebram em duas linhas.
+
 A régua de tipografia, medida de linha e espaço está em `docs/DESIGN_UI.md`, e é
 aplicada por `ui/_estilo.py` — não invente escala nova por página.
 
@@ -1011,6 +1025,14 @@ arquivo. As decisões que ele fixa e que já custaram retrabalho:
   marcou resposta; a frase é "Nenhuma resposta identificada ainda". Cada
   candidatura enviada mostra a data (`max(candidaturas.criado_em)` por vaga —
   não `vagas.atualizado_em`, que a varredura de encerradas também toca).
+- **As etapas do assistente checam `_no_assistente()`** e não desenham
+  Voltar/Avançar/Pular no modo ajuste: "Avançar" índigo ao lado de "Salvar" era
+  uma segunda primária, e a legenda que pedia para ignorá-los era a interface
+  se desculpando.
+- **Motivo em frase não é tecnologia** (`aderencia._e_frase`): o scorer antigo
+  escrevia "Forte alinhamento tecnológico com…" em `motivos_positivos`, e isso
+  virava chip de 869px e "Forte aderência em Forte alinhamento…". Frase vira o
+  `porque`, resumida.
 - **`kind="primaryFormSubmit"`** é o botão de formulário: a regra de botão
   primário precisa listá-lo, senão "Salvar preferências" sai com texto cinza
   sobre índigo. Medido na captura.

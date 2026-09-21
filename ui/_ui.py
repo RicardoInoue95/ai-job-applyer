@@ -106,6 +106,8 @@ CSS = """
     color: var(--acao) !important; font-weight: 600 !important;
   }
   [data-testid="stSidebarNav"] a { border-radius: var(--raio-p); }
+  [data-testid="stSidebarNav"] a:focus-visible {
+    outline: 2px solid var(--acao); outline-offset: 2px; }
 
   .marca { padding: .35rem .25rem 1rem; }
   .marca-nome { font-size: 1.02rem; font-weight: 650; color: var(--txt-1);
@@ -118,10 +120,23 @@ CSS = """
                   padding: .12rem 0; }
   .ponto { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 
+  /* O Streamlit dá margin-bottom:-1rem ao container de markdown supondo que
+     o último filho é um <p> com 1rem de margem. Nos blocos em HTML (divs)
+     não há margem para compensar — no ritmo normal da página o gap de 16px
+     absorve isso, mas dentro de contêineres com gap reduzido o bloco
+     seguinte invadia o anterior: 10px no cartão do Início, 16px em Vagas ›
+     Detalhes (medidos). A correção é só nesses contêineres. */
+  .st-key-proximo [data-testid="stMarkdownContainer"],
+  .st-key-lista [data-testid="stExpanderDetails"] [data-testid="stMarkdownContainer"] {
+    margin-bottom: 0 !important; }
+
   /* ── Cabeçalho de página ──────────────────────────────────────────────── */
   .pg { margin-bottom: 1.5rem; }
-  .pg-titulo { font-size: 1.85rem; font-weight: 700; color: var(--txt-1);
-               letter-spacing: -.02em; line-height: 1.15; }
+  /* h1/h2 de verdade (leitor de tela), com o CSS do produto — o estilo
+     padrão do Streamlit para headings é zerado aqui. */
+  h1.pg-titulo, .pg-titulo { font-size: 1.85rem; font-weight: 700; color: var(--txt-1);
+               letter-spacing: -.02em; line-height: 1.15; margin: 0; padding: 0; }
+  h1.pg-titulo a, h2.sec a { display: none; }
   .pg-desc { font-size: var(--txt-apoio); color: var(--txt-3); margin-top: .22rem;
              max-width: var(--medida); }
 
@@ -131,9 +146,14 @@ CSS = """
      (padding 15px); o cartão da lista usa 12/16 e "Detalhes" cola no texto. */
   .st-key-lista .stVerticalBlock:has(> [data-testid="stLayoutWrapper"] > .stHorizontalBlock) {
     padding: var(--e3) var(--e4); gap: 0; }
+  /* O gap zerado é do cartão; dentro de Detalhes volta o ritmo normal — sem
+     isto os chips cobriam a última linha de eixo em 16px (medido). */
+  .st-key-lista [data-testid="stExpanderDetails"] .stVerticalBlock.stVerticalBlock { gap: var(--e3); }
   .st-key-lista [data-testid="stExpander"] { margin-top: var(--e2); }
   .st-key-lista [data-testid="stExpander"] details { border: 0; background: transparent; }
-  .st-key-lista [data-testid="stExpander"] summary { padding: 0; min-height: 0; line-height: 1.3; }
+  .st-key-lista [data-testid="stExpander"] summary { padding: var(--e1) 0; min-height: 24px; line-height: 1.3; }
+  .st-key-lista [data-testid="stExpander"] summary:hover,
+  .st-key-lista [data-testid="stExpander"] details[open] > summary { background: transparent; }
   .st-key-lista [data-testid="stExpander"] summary p { font-size: var(--txt-apoio); color: var(--txt-3); }
   .st-key-lista [data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding-left: 0; padding-right: 0; }
 
@@ -160,20 +180,46 @@ CSS = """
 
   /* Primeira seção de uma coluna lateral alinha com o topo do cartão. */
   .st-key-lado .sec:first-child, .st-key-lado > div > div:first-child .sec { margin-top: 0; }
-  .st-key-proximo [data-testid="stPageLink"] { margin-top: var(--e2); }
-  .st-key-proximo.stVerticalBlock { padding: var(--e4) var(--e5); gap: var(--e1); }
+  /* O markdown do Streamlit termina com margem negativa; sem margem própria
+     o link invadia a linha "✓ Currículo · ✓ Carta" em 10px (medido). */
+  .st-key-proximo [data-testid="stPageLink"] { margin-top: var(--e1); }
+  .st-key-proximo.stVerticalBlock { padding: var(--e4) var(--e5); gap: var(--e2); }
   .st-key-proximo .destaque-titulo { margin: 0; }
 
   /* Em Preferências, "Editar", "Filtros avançados" e "Empresas" são links que
      abrem, não caixas dentro da caixa do formulário. */
   .st-key-prefs [data-testid="stExpander"] details { border: 0; background: transparent; }
-  .st-key-prefs [data-testid="stExpander"] summary { padding: var(--e1) 0; }
+  .st-key-prefs [data-testid="stExpander"] summary { padding: var(--e1) 0; min-height: 24px; }
+  .st-key-prefs [data-testid="stExpander"] summary:hover,
+  .st-key-prefs [data-testid="stExpander"] details[open] > summary { background: transparent; }
   .st-key-prefs [data-testid="stExpander"] summary p { font-size: var(--txt-apoio); color: var(--acao); }
   .st-key-prefs [data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding-left: 0; padding-right: 0; }
+
+  /* Checklist de Revisar: grid flexível (as larguras fixas de 6,5rem
+     quebravam em três linhas a 1024px). */
+  .check-linha { display: grid; grid-template-columns: 1rem minmax(5rem, max-content) 1fr;
+                 gap: var(--e2); align-items: baseline; padding: var(--e2) 0;
+                 border-bottom: 1px solid var(--borda); }
+
+  /* Tablet: barra lateral fixa de 300px deixa 724px. Abaixo de 1280px o
+     workspace de Revisar empilha e a linha de filtros de Vagas quebra em
+     duas — em vez de coluna de 195px e rótulos com reticências. */
+  @media (max-width: 1280px) {
+    .st-key-workspace > [data-testid="stLayoutWrapper"] > .stHorizontalBlock { flex-wrap: wrap; }
+    .st-key-workspace > [data-testid="stLayoutWrapper"] > .stHorizontalBlock > .stColumn {
+      flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }
+    .st-key-filtros .stHorizontalBlock { flex-wrap: wrap; }
+    .st-key-filtros .stColumn { flex: 1 1 30% !important; min-width: 30% !important; }
+  }
 
   /* Candidaturas enviadas: uma linha por vaga, com traço entre elas. */
   .st-key-envios .stHorizontalBlock { padding: var(--e3) 0; border-bottom: 1px solid var(--borda); }
   .st-key-envios.stVerticalBlock { gap: 0; }
+
+  /* Chips escolhidos do multiselect: valores, não ações — cinza, não índigo. */
+  .stMultiSelect span[data-baseweb="tag"] {
+    background: var(--fundo); border: 1px solid var(--borda-forte); color: var(--txt-1); }
+  .stMultiSelect span[data-baseweb="tag"] span, .stMultiSelect span[data-baseweb="tag"] svg { color: var(--txt-2); fill: var(--txt-2); }
 
   /* Campo em modo resumo (Configurações): rótulo como o do Streamlit, valor
      em corpo, editor atrás de um clique. */
@@ -188,17 +234,21 @@ CSS = """
   /* Cargo em destaque no cartão protagonista: H2 do contrato. */
   .destaque-titulo { font-size: 1.3rem; font-weight: 650; color: var(--txt-1);
                      line-height: 1.25; margin: var(--e1) 0 var(--e1); }
+  /* Links do markdown na cor de ação, não no azul padrão do Streamlit:
+     um azul só na paleta. */
+  [data-testid="stMarkdownContainer"] a { color: var(--acao); }
   .meta-linha { font-size: var(--txt-meta); color: var(--txt-3); }
 
   /* ── Seção ────────────────────────────────────────────────────────────── */
-  .sec { font-size: .78rem; font-weight: 650; letter-spacing: .045em;
-         text-transform: uppercase; color: var(--txt-3);
-         margin: var(--e6) 0 var(--e3); }
+  h2.sec, .sec { font-size: .78rem; font-weight: 650; letter-spacing: .045em;
+         text-transform: uppercase; color: var(--txt-3); line-height: 1.6;
+         margin: var(--e6) 0 var(--e3); padding: 0; }
 
   /* ── Cartão ───────────────────────────────────────────────────────────── */
-  .cartao { background: var(--superficie); border: 1px solid var(--borda);
-            border-radius: var(--raio); box-shadow: var(--sombra);
-            padding: 1rem 1.15rem; }
+  /* Mesmo raio, borda e padding do `st.container(border=True)` protagonista
+     (Início): um cartão de vaga só, em dois lugares. */
+  .cartao { background: var(--superficie); border: 1px solid rgba(71, 84, 103, .2);
+            border-radius: var(--raio-p); padding: var(--e4) var(--e5); }
 
   /* ── Métrica ──────────────────────────────────────────────────────────── */
   .met { background: var(--superficie); border: 1px solid var(--borda);
@@ -232,7 +282,7 @@ CSS = """
   .vaga-titulo { font-size: 1.05rem; font-weight: 600; color: var(--txt-1);
                  line-height: 1.35; }
   .vaga-empresa { font-size: var(--txt-apoio); color: var(--txt-2); }
-  .vaga-porque { font-size: var(--txt-apoio); color: var(--txt-2); margin: var(--e2) 0; }
+  .vaga-porque { font-size: var(--txt-apoio); color: var(--txt-2); margin-top: var(--e2); }
   .vaga-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;
                margin-top: .45rem; font-size: var(--txt-meta);
                color: var(--txt-3); }
@@ -284,7 +334,8 @@ CSS = """
                    background: linear-gradient(transparent, var(--fundo)); }
 
   /* ── Controles ────────────────────────────────────────────────────────── */
-  .stButton button, .stDownloadButton button, .stLinkButton a {
+  .stButton button, .stDownloadButton button, .stLinkButton a,
+  .stFormSubmitButton button {
     font-size: var(--txt-apoio); font-weight: 550; border-radius: var(--raio-p);
   }
   /* Primário índigo: o vermelho do Streamlit em botão comum torna o vermelho
@@ -317,6 +368,10 @@ CSS = """
   .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
     font-size: var(--txt-apoio); border-radius: var(--raio-p);
   }
+  /* text_input (38px) e selectbox (40px) na mesma linha de filtros. */
+  .stTextInput div[data-baseweb="base-input"], .stTextInput input { min-height: 40px; }
+  /* Links de página no ritmo dos demais blocos (16px), não 10. */
+  [data-testid="stPageLink"] { margin-top: var(--e2); }
   /* Chips do multiselect. O Streamlit pinta o fundo com primaryColor e o
      texto herdava o --txt-2 da regra global: cinza sobre índigo, ~1,5:1 de
      contraste. Mesmo par do cartão em destaque, ~6,7:1. */
@@ -382,7 +437,7 @@ def cabecalho(titulo: str, descricao: str = "", acao=None) -> None:
     """
     if acao is None:
         st.markdown(
-            f'<div class="pg"><div class="pg-titulo">{titulo}</div>'
+            f'<div class="pg"><h1 class="pg-titulo">{titulo}</h1>'
             f'{f"<div class=\'pg-desc\'>{descricao}</div>" if descricao else ""}</div>',
             unsafe_allow_html=True,
         )
@@ -391,7 +446,7 @@ def cabecalho(titulo: str, descricao: str = "", acao=None) -> None:
     esq, dir_ = st.columns([3, 1], vertical_alignment="center")
     with esq:
         st.markdown(
-            f'<div class="pg"><div class="pg-titulo">{titulo}</div>'
+            f'<div class="pg"><h1 class="pg-titulo">{titulo}</h1>'
             f'{f"<div class=\'pg-desc\'>{descricao}</div>" if descricao else ""}</div>',
             unsafe_allow_html=True,
         )
@@ -409,7 +464,7 @@ def local_curto(localizacao: str) -> str:
 def secao(rotulo: str) -> None:
     """Divisor de seção. Menos pesado que `st.subheader`, que compete com o
     título da página."""
-    st.markdown(f'<div class="sec">{rotulo}</div>', unsafe_allow_html=True)
+    st.markdown(f'<h2 class="sec">{rotulo}</h2>', unsafe_allow_html=True)
 
 
 def metrica(rotulo: str, valor, nota: str = "", destaque: bool = False) -> None:
@@ -531,10 +586,13 @@ def evidencia(a: dict | None) -> None:
                              for t in cobertas[:10]), unsafe_allow_html=True)
     # O ponto de atenção (nível 1) já está no cartão; aqui só o que ele não
     # disse — a lista completa do que a vaga pede e o currículo não cita.
-    if faltam:
+    # O que o ponto de atenção do cartão já nomeou não se repete aqui.
+    atencao = (a.get("atencao") or "").lower()
+    restantes = [t for t in faltam if t.lower() not in atencao]
+    if restantes:
         st.markdown(
             '<div class="meta-linha" style="color:var(--aviso);margin-top:var(--e2)">'
-            f'⚠ Não cita: {", ".join(faltam)}</div>', unsafe_allow_html=True)
+            f'⚠ Não cita: {", ".join(restantes)}</div>', unsafe_allow_html=True)
 
 
 def vazio(titulo: str, detalhe: str = "") -> None:

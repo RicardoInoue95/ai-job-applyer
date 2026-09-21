@@ -85,7 +85,7 @@ quantas, proxima = _fila()
 
 # ── 1. O que precisa de você ──────────────────────────────────────────────────
 
-st.markdown(f'<div class="pg-titulo">{_saudacao()}</div>', unsafe_allow_html=True)
+st.markdown(f'<h1 class="pg-titulo">{_saudacao()}</h1>', unsafe_allow_html=True)
 if quantas:
     st.markdown(
         f'<p class="lede">Você tem <b>{quantas} vaga{"s" if quantas != 1 else ""}</b> '

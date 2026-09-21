@@ -122,6 +122,19 @@ def _agrupar(tecnologias: list[str]) -> str:
     return ", ".join(tres[:-1]) + " e " + tres[-1]
 
 
+def _e_frase(motivo: str) -> bool:
+    """"Python" é tecnologia; "Forte alinhamento tecnológico com…" é frase."""
+    m = motivo.strip()
+    return len(m) > 32 or m.endswith(".") or m.count(" ") >= 4
+
+
+def _resumir(frase: str, limite: int = 140) -> str:
+    f = frase.strip().rstrip(".")
+    if len(f) > limite:
+        f = f[:limite].rsplit(" ", 1)[0] + "…"
+    return f[0].upper() + f[1:] + ("" if f.endswith("…") else ".")
+
+
 def _ponto_de_atencao(breakdown: dict, eixos: list[Eixo]) -> str:
     """A coisa mais grave que o número esconde, em uma frase. Só uma.
 
@@ -171,8 +184,13 @@ def analisar(vaga) -> Aderencia:
              for chave, peso, rotulo in EIXOS if chave in brk and brk[chave] is not None]
     # O scorer escreve "nenhuma tecnologia da vaga reconhecida" DENTRO de
     # `motivos_positivos` quando não há nenhuma. Não é motivo positivo.
-    cobertas = [t for t in (dados.get("motivos_positivos") or [])
-                if t and not t.lower().startswith("nenhuma")]
+    motivos = [t for t in (dados.get("motivos_positivos") or [])
+               if t and not t.lower().startswith("nenhuma")]
+    # Scorer antigo (com LLM) escrevia motivos em frase — "Forte alinhamento
+    # tecnológico com Databricks, SQL…". Frase não é tecnologia: virava chip
+    # de 869px e "Forte aderência em Forte alinhamento…". Medido: 21 vagas.
+    cobertas = [t for t in motivos if not _e_frase(t)]
+    frases = [t for t in motivos if _e_frase(t)]
     faltam: list[str] = []
     for g in dados.get("gaps") or []:
         if isinstance(g, str) and g.startswith("tecnologias da vaga ausentes"):
@@ -184,6 +202,8 @@ def analisar(vaga) -> Aderencia:
         porque = f"Forte aderência em {fortes}."
     elif fortes:
         porque = f"Cobre {fortes}."
+    elif frases:
+        porque = _resumir(frases[0])
     else:
         porque = "Pouca sobreposição com o seu currículo."
 

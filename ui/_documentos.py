@@ -72,6 +72,9 @@ def render(com_cabecalho: bool = True) -> None:
         st.error(f"Não foi possível ler os documentos: {exc}")
         return
 
+    # Mais recente primeiro: o que se reaproveita é o de ontem, não o de
+    # aderência mais baixa (a ordem anterior era crescente por score).
+    docs.sort(key=lambda d: (d["gerado_em"] is None, d["gerado_em"]), reverse=True)
     if not docs:
         _ui.vazio("Nenhum documento ainda",
                   "Currículos e cartas são gerados pela esteira de candidaturas. "
