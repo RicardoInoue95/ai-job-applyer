@@ -318,3 +318,14 @@ def test_dossie_de_vaga_inexistente_usa_o_catalogo(cliente, monkeypatch):
     assert r.status_code == 404
     assert r.json()["erro"]["codigo"] == "vaga-inexistente"
     assert r.json()["erro"]["acao"]
+
+
+def test_situacao_do_perfil_diz_o_slug_e_quando_foi_lido(cliente, perfil_isolado):
+    """É o que a extensão consulta para decidir se lê sozinha: só o SEU slug,
+    e só se a última leitura estiver velha."""
+    r = cliente.get("/perfil_linkedin")
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["slug"] == "fulano-teste"
+    assert corpo["lido_em"] is None
+    assert corpo["dias_para_reler"] >= 1

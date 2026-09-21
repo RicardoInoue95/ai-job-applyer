@@ -39,6 +39,11 @@ ARQUIVO = paths.DATA / "perfil_linkedin.json"
 #: estão na fila. `pendente` fica de fora — possibilidade não é alvo.
 STATUS_MERCADO = ("aprovada", "pronta_envio_manual", "pronta_para_revisao")
 
+#: Depois de quantos dias a extensão relê o perfil sozinha ao vê-lo aberto.
+#: Sete: perfil muda pouco, e reler a cada visita gastaria uma análise por
+#: clique em "ver meu perfil".
+DIAS_PARA_RELER = 7
+
 #: Quantas tecnologias do mercado entram na comparação.
 TOPO_MERCADO = 15
 #: Quantas das mais pedidas o título deveria citar, e o tamanho mínimo do
@@ -95,6 +100,32 @@ def e_meu_perfil(url: str, mestre: dict) -> bool:
 
 
 # ── Persistência ──────────────────────────────────────────────────────────────
+
+def gravar_url(url: str) -> str:
+    """Grava a URL do perfil no MESTRE (`resume.json.linkedin`), normalizada.
+
+    No mestre e não em `config.json`: contato é fato do currículo, e fato mora
+    num lugar só (invariante 11). O PDF lê daqui; a análise compara com daqui.
+    """
+    limpa = (url or "").strip()
+    # Colado sem esquema ("linkedin.com/in/x"), `urlsplit` põe tudo em `path`
+    # e o slug não sai. O navegador sempre manda com esquema; quem digita, não.
+    if limpa and not re.match(r"^[a-z]+://", limpa, re.I):
+        limpa = "https://" + limpa
+    s = slug(limpa)
+    if not s:
+        raise ValueError("Isso não parece um endereço de perfil do LinkedIn "
+                         "(esperado: linkedin.com/in/seu-nome).")
+    # Sem query string nem barra dupla: `?locale=pt` e `/in/x//` são a mesma
+    # página e quebrariam a comparação de slug.
+    partes = urlsplit(limpa)
+    canonica = f"https://www.linkedin.com/in/{partes.path.split('/in/')[1].strip('/')}/"
+    mestre = json.loads(paths.RESUME_JSON.read_text(encoding="utf-8"))
+    mestre["linkedin"] = canonica
+    paths.RESUME_JSON.write_text(json.dumps(mestre, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
+    return canonica
+
 
 def gravar(perfil: dict, url: str) -> dict:
     registro = {"lido_em": agora_utc().isoformat(timespec="seconds"),

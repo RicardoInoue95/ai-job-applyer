@@ -117,11 +117,15 @@ modelo. Sem a pasta, nada muda.
 
 ### Análise do perfil do LinkedIn
 
-`jobapplier/perfil_linkedin.py`, endpoint `POST /perfil_linkedin`, seção em
-Configurações → LinkedIn. O perfil chega pela extensão (`extensao/linkedin.js`),
-que só carrega em `linkedin.com/in/*` e só lê quando **você clica** em "Analisar
-meu perfil" — nada abre o LinkedIn, nem com a sessão salva (invariante 6). A API
-recusa perfil cujo slug não seja o de `resume.json.linkedin` (403, sem gravar).
+`jobapplier/perfil_linkedin.py`, endpoints `GET`/`POST /perfil_linkedin`, seção
+em Configurações → LinkedIn (com o campo da URL, que grava no **mestre** —
+contato é fato do currículo, invariante 11). O perfil chega pela extensão
+(`extensao/linkedin.js`), que só carrega em `linkedin.com/in/*` — nada abre o
+LinkedIn, nem com a sessão salva (invariante 6). Lê quando **você clica**, ou
+**sozinha ao ver o seu perfil aberto** se a última leitura tiver mais de 7 dias
+(`DIAS_PARA_RELER`): antes de ler sem clique ela pergunta à API qual é o seu slug
+e compara com a página. Perfil de terceiro nunca é lido sem clique, e com clique
+a API recusa (403, sem gravar).
 
 A comparação tem três frentes, nesta ordem: **fato** contra o mestre (cargo,
 empresa, data, formação — prioridade 1), **vocabulário** contra a fila (tecnologia
@@ -191,6 +195,23 @@ versão punha três documentos por tela. A fonte é o disco, porque só 351 dos 
 têm linha em `candidaturas` — o dossiê é gerado para o baralho sem candidatura.
 Medido na tela: no `st.dataframe`, clicar no texto seleciona a *célula*; quem
 seleciona a linha é a caixa da primeira coluna, e a legenda diz isso.
+
+### Preencher tudo: a extensão mostra antes, escreve no clique
+
+`extensao/conteudo.js` tem duas etapas. `preparar()` lê o formulário, pergunta
+à API e mostra no aviso o que vai acontecer — "12 perguntas neste passo · 10 o
+sistema sabe responder · 2 ficam para você" — com o botão **Preencher tudo**.
+`aplicar()` escreve, e só roda no clique. A versão anterior preenchia sozinha
+1,2 s depois do load: quem estava lendo o anúncio via o formulário mudar sem
+ter pedido, sem saber o que foi escrito nem por quê.
+
+A assinatura do formulário (rótulos + tipos) evita perguntar de novo a cada
+re-render do React; passo novo do SPA muda a assinatura e reconsulta. O que
+você digita nas que ficaram vai para o banco de respostas, como antes.
+
+`tests/unit/test_extensao.py` roda `node --check` nos quatro scripts: erro de
+sintaxe em content script não aparece em lugar nenhum — nem no console da
+página, nem no aviso — e custou uma rodada inteira de depuração.
 
 ### Identificar a candidatura aberta no navegador
 

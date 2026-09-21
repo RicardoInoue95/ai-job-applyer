@@ -436,6 +436,28 @@ async def marcar_enviada(request):
     return JSONResponse({"ok": True})
 
 
+async def situacao_perfil_linkedin(request):
+    """Qual é o seu perfil e quando foi lido pela última vez.
+
+    É o que a extensão consulta ao abrir uma página `/in/*` para decidir se
+    lê sozinha: só o SEU perfil, e só se a última leitura estiver velha. Sem
+    isto ela não teria como saber qual slug é o seu — a permissão cobre
+    `/in/*` inteiro.
+    """
+    from starlette.responses import JSONResponse
+
+    from jobapplier import perfil_linkedin as mod
+
+    mestre = _resume()
+    registro = mod.carregar()
+    return JSONResponse({
+        "url": mestre.get("linkedin") or "",
+        "slug": mod.slug(mestre.get("linkedin") or ""),
+        "lido_em": registro.get("lido_em") if registro else None,
+        "dias_para_reler": mod.DIAS_PARA_RELER,
+    })
+
+
 async def perfil_linkedin(request):
     """Recebe o SEU perfil, lido pela extensão na sua aba, e devolve a análise.
 
@@ -538,6 +560,7 @@ def criar_app():
         Route("/vincular", vincular, methods=["POST"]),
         Route("/vaga/{vaga_id:int}/curriculo", curriculo),
         Route("/vaga/{vaga_id:int}/enviada", marcar_enviada, methods=["POST"]),
+        Route("/perfil_linkedin", situacao_perfil_linkedin),
         Route("/perfil_linkedin", perfil_linkedin, methods=["POST"]),
         Route("/fila", listar_fila),
         Route("/vaga/{vaga_id:int}/dossie", dossie_da_vaga),

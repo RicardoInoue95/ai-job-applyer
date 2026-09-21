@@ -117,9 +117,10 @@ BOTAO.style.cssText = "position:fixed;right:16px;bottom:24px;z-index:2147483647;
   + "padding:9px 14px;border:0;border-radius:8px;background:#4F46E5;color:#fff;"
   + "font:600 13px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)";
 
-BOTAO.addEventListener("click", async () => {
+async function analisar(motivo) {
   BOTAO.disabled = true;
-  aviso("Lendo o perfil…");
+  aviso(motivo === "auto" ? "Lendo o seu perfil (última leitura há mais de 7 dias)…"
+                          : "Lendo o perfil…");
   try {
     const perfil = await lerPerfil();
     const achou = `título ${perfil.titulo ? "✓" : "—"} · sobre ${perfil.sobre ? "✓" : "—"} · `
@@ -136,10 +137,38 @@ BOTAO.addEventListener("click", async () => {
   } finally {
     BOTAO.disabled = false;
   }
-});
+}
+
+BOTAO.addEventListener("click", () => analisar("clique"));
+
+// Só o SEU perfil, e só se a última leitura estiver velha. Quem sabe qual é o
+// seu slug é o backend (`resume.json.linkedin`) — a permissão desta extensão
+// cobre `/in/*` inteiro e ela não tem como saber sozinha. Perfil de outra
+// pessoa nunca é lido sem clique, e mesmo com clique a API recusa (403).
+async function lerSozinhoSeForMeuEVelho() {
+  let r;
+  try {
+    r = await chrome.runtime.sendMessage({ tipo: "situacao_perfil" });
+  } catch {
+    return; // sem API não há o que comparar; o botão continua lá
+  }
+  if (!r || !r.ok || !r.dados || !r.dados.slug) return;
+  const meuSlug = String(r.dados.slug).toLowerCase();
+  const daPagina = (CAMINHO.match(/^\/in\/([^/]+)/) || [])[1];
+  if (!daPagina || daPagina.toLowerCase() !== meuSlug) return;
+
+  const dias = Number(r.dados.dias_para_reler) || 7;
+  const lidoEm = r.dados.lido_em ? Date.parse(r.dados.lido_em) : 0;
+  const velho = !lidoEm || Date.now() - lidoEm > dias * 24 * 3600 * 1000;
+  if (!velho) return;
+  // A página do LinkedIn monta as seções depois do load; sem a espera a leitura
+  // vinha com "0 experiências" e a análise ficava errada por uma semana.
+  setTimeout(() => analisar("auto"), 2500);
+}
 
 if (E_PERFIL) {
   document.body.append(AVISO, BOTAO);
+  lerSozinhoSeForMeuEVelho();
 } else if (E_DETALHE_COMPETENCIAS) {
   // Sem botão aqui: só guarda a lista completa para o envio na página do perfil.
   const guardar = () => {

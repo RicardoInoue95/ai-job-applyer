@@ -148,11 +148,36 @@ function erroDaFalha(e) {
 // Sem isto, cada re-render do React virava outra requisição.
 const desistidas = new Set();
 
-async function preencher() {
+// O que a API respondeu para o formulário atual, esperando o clique. Guardado
+// com a "assinatura" do formulário (os rótulos, em ordem): se o SPA trocar de
+// passo, a assinatura muda e se pergunta de novo; se só re-renderizar, não.
+let preparado = null;
+
+function assinaturaDe(campos) {
+  return campos.map((c) => c.label + "|" + c.tipo).join("\n");
+}
+
+// Botão "Preencher tudo". Fica no aviso, e é o único jeito de escrever no
+// formulário: a versão anterior preenchia sozinha 1,2 s depois do load, e quem
+// estava lendo o anúncio via o formulário mudar sem ter pedido — não dava para
+// saber o que tinha sido escrito nem por quê. Agora o aviso diz antes ("12
+// perguntas, 10 o sistema sabe"), e o clique é seu.
+const BOTAO = document.createElement("button");
+BOTAO.id = "aija-preencher";
+BOTAO.type = "button";
+BOTAO.textContent = "Preencher tudo";
+BOTAO.style.cssText = "margin-top:8px;padding:7px 12px;border:0;border-radius:6px;"
+  + "background:#4F46E5;color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer";
+BOTAO.addEventListener("click", () => { if (preparado) aplicar(preparado); });
+
+// 1ª etapa: lê o formulário e pergunta à API. Não escreve nada.
+async function preparar() {
   if (desistidas.has(location.href)) return;
 
   const campos = lerCampos();
   if (!campos.length) return;
+  const assinatura = assinaturaDe(campos);
+  if (preparado && preparado.assinatura === assinatura) return;
 
   let dados;
   try {
@@ -181,6 +206,18 @@ async function preencher() {
     return;
   }
 
+  preparado = { assinatura, campos, dados };
+  const sabe = dados.respostas.filter((r) => r.valor !== null && r.valor !== undefined).length;
+  const manuais = dados.manuais || [];
+  aviso(`${campos.length} perguntas neste passo · ${sabe} o sistema sabe responder.`,
+        manuais.length
+          ? `${manuais.length} ficam para você: ${manuais.slice(0, 3).join(" · ")}`
+          : "Todas têm resposta. O envio continua sendo seu.");
+  AVISO.appendChild(BOTAO);
+}
+
+// 2ª etapa: escreve. Só depois do clique.
+function aplicar({ campos, dados }) {
   // As opções ficam do lado de cá: a API devolve só o valor escolhido, e para
   // marcar o checkbox certo é preciso saber qual opção era.
   const lidos = new Map(campos.map((c) => [c.seletor, c]));
@@ -200,6 +237,14 @@ async function preencher() {
         manuais.length
           ? `${manuais.length} ficaram para você: ${manuais.slice(0, 3).join(" · ")}`
           : "Confira antes de enviar — o envio é seu.");
+}
+
+// Nome antigo, mantido para quem chama de fora (testes): preparar e, se houver
+// o que escrever, aplicar. Não é o caminho da interface — lá o clique separa
+// as duas etapas.
+async function preencher() {
+  await preparar();
+  if (preparado) aplicar(preparado);
 }
 
 // Qual das vagas é esta? Só aparece quando o sistema NÃO consegue saber — sem
@@ -267,9 +312,9 @@ const observador = new MutationObserver((mudancas) => {
   // extensão estava se realimentando.
   if (mudancas.every((m) => AVISO.contains(m.target))) return;
   clearTimeout(agendado);
-  agendado = setTimeout(preencher, 800);
+  agendado = setTimeout(preparar, 800);
 });
 observador.observe(document.body, { childList: true, subtree: true });
-setTimeout(preencher, 1200);
+setTimeout(preparar, 1200);
 
-if (typeof module !== "undefined") module.exports = { escrever, preencher };
+if (typeof module !== "undefined") module.exports = { escrever, preencher, preparar, aplicar };

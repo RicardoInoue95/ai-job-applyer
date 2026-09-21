@@ -796,13 +796,38 @@ def _secao_perfil_linkedin() -> None:
     from jobapplier import perfil_linkedin as mod
 
     _ui.secao("Análise do perfil")
+
+    # A URL vive no mestre (`resume.json.linkedin`), não na config: é contato,
+    # e contato é fato do currículo. Este campo só facilita chegar lá.
+    try:
+        mestre = json.loads(paths.RESUME_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        mestre = {}
+    col_url, col_btn = st.columns([5, 1])
+    with col_url:
+        url_nova = st.text_input(
+            "Endereço do seu perfil", value=mestre.get("linkedin") or "",
+            placeholder="https://www.linkedin.com/in/seu-nome/",
+            help="Vai para o currículo (resume.json). A extensão só analisa o "
+                 "perfil deste endereço — e o relê sozinha a cada 7 dias quando "
+                 "você o abre.")
+    with col_btn:
+        st.write("")
+        if st.button("Salvar", use_container_width=True, key="salvar_url_li"):
+            try:
+                canonica = mod.gravar_url(url_nova)
+                st.success(f"Salvo: {canonica}")
+            except ValueError as exc:
+                st.error(str(exc))
+
     registro = mod.carregar()
     if not registro:
         _ui.vazio(
             "Nenhum perfil lido ainda",
-            "Abra o seu perfil no LinkedIn com a extensão carregada e clique em "
-            "**Analisar meu perfil**, no canto da página. A leitura acontece na "
-            "sua aba, quando você pede — nada é lido sozinho.")
+            "Abra o seu perfil no LinkedIn com a extensão carregada. Ela lê "
+            "sozinha na primeira visita (e a cada 7 dias), ou quando você clica "
+            "em **Analisar meu perfil**. Só o perfil do endereço acima — nunca "
+            "o de outra pessoa.")
         return
 
     try:

@@ -186,16 +186,25 @@ def test_leitor_de_perfil_nao_preenche_nem_clica():
         assert proibido not in codigo.lower()
 
 
-def test_leitor_de_perfil_so_age_por_clique():
-    """A leitura é disparada pelo botão, não ao carregar a página: o candidato
-    decide quando o perfil sai da aba dele."""
+def test_leitor_de_perfil_so_le_sozinho_o_proprio_perfil():
+    """Leitura sem clique só acontece depois de conferir, com o backend, que o
+    slug da página é o do candidato e que a última leitura está velha. Perfil de
+    terceiro nunca é lido sem clique — e com clique a API recusa (403)."""
     codigo = _codigo("linkedin.js")
     assert 'addEventListener("click"' in codigo
     assert "lerPerfil()" in codigo
-    # Nenhuma chamada ao envio fora do handler do botão.
-    fora = [ln for ln in codigo.splitlines()
-            if "sendMessage" in ln and "perfil_linkedin" in ln]
-    assert len(fora) == 1, fora
+    # A única chamada de envio vive em `analisar`, que o clique e a leitura
+    # automática compartilham.
+    envios = [ln for ln in codigo.splitlines()
+              if "sendMessage" in ln and "perfil_linkedin" in ln]
+    assert len(envios) == 1, envios
+    # A automática pergunta ao backend qual é o slug e compara com a página.
+    auto = codigo[codigo.index("async function lerSozinhoSeForMeuEVelho"):]
+    auto = auto[:auto.index("if (E_PERFIL)")]
+    assert '"situacao_perfil"' in auto
+    assert "meuSlug" in auto and "daPagina" in auto
+    assert "daPagina.toLowerCase() !== meuSlug" in auto
+    assert "dias_para_reler" in auto
 
 
 def test_backend_e_so_loopback():
@@ -211,3 +220,21 @@ def test_nao_pede_permissao_ampla():
 
 def test_manifest_v3():
     assert MANIFEST["manifest_version"] == 3
+
+
+# ── Sintaxe ───────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("arquivo", ["conteudo.js", "campos.js", "fundo.js", "linkedin.js"])
+def test_javascript_compila(arquivo):
+    """Erro de sintaxe num content script não aparece em lugar nenhum: nem no
+    console da página, nem no aviso — a extensão simplesmente não faz nada. Uma
+    quebra de linha que devia ser `\n` custou uma rodada inteira de depuração."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node não instalado")
+    r = subprocess.run([node, "--check", str(EXT / arquivo)],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr

@@ -203,3 +203,44 @@ def test_grava_e_carrega_em_data(tmp_path, monkeypatch):
 def test_sem_arquivo_carrega_none(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "ARQUIVO", tmp_path / "nada.json")
     assert mod.carregar() is None
+
+
+# ── URL do perfil no mestre ───────────────────────────────────────────────────
+
+def _mestre_em(tmp_path, monkeypatch, conteudo):
+    import json
+
+    from jobapplier import paths
+
+    arquivo = tmp_path / "resume.json"
+    arquivo.write_text(json.dumps(conteudo), encoding="utf-8")
+    monkeypatch.setattr(paths, "RESUME_JSON", arquivo)
+    return arquivo
+
+
+@pytest.mark.parametrize("entrada", [
+    "https://www.linkedin.com/in/Fulano-De-Tal/?locale=pt_BR",
+    "linkedin.com/in/fulano-de-tal",
+    "  https://br.linkedin.com/in/fulano-de-tal//  ",
+])
+def test_gravar_url_normaliza_e_grava_no_mestre(tmp_path, monkeypatch, entrada):
+    """Contato é fato do currículo: vai para `resume.json`, não para a config.
+    E canônica, porque `?locale=pt` e barra dupla são a mesma página e
+    quebrariam a comparação de slug."""
+    import json
+
+    arquivo = _mestre_em(tmp_path, monkeypatch, {"nome": "Fulano", "linkedin": ""})
+    canonica = mod.gravar_url(entrada)
+    assert canonica.lower() == "https://www.linkedin.com/in/fulano-de-tal/"
+    gravado = json.loads(arquivo.read_text(encoding="utf-8"))
+    assert gravado["linkedin"] == canonica
+    assert gravado["nome"] == "Fulano"          # o resto do mestre fica intacto
+
+
+@pytest.mark.parametrize("ruim", ["", "https://www.linkedin.com/jobs/view/1",
+                                  "https://google.com", "fulano"])
+def test_gravar_url_recusa_o_que_nao_e_perfil(tmp_path, monkeypatch, ruim):
+    arquivo = _mestre_em(tmp_path, monkeypatch, {"linkedin": "antes"})
+    with pytest.raises(ValueError):
+        mod.gravar_url(ruim)
+    assert '"antes"' in arquivo.read_text(encoding="utf-8")   # nada gravado

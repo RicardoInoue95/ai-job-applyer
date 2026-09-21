@@ -157,10 +157,19 @@ def test_extensao_preenche_o_formulario_da_gupy(api, acervo, navegador):
     page.wait_for_timeout(800)
 
     # 2. Formulário, na mesma aba, sem jobId na URL. A extensão tem de resolver
-    #    a vaga pela memória da aba (ou pelo referrer), perguntar à API e
-    #    escrever. O primeiro preenchimento dispara 1,2 s depois do load.
+    #    a vaga pela memória da aba (ou pelo referrer) e perguntar à API — mas
+    #    NÃO escrever: ela mostra o que sabe e espera o clique.
     page.click("text=Candidatar-se")
     page.wait_for_url(URL_FORMULARIO + "*")
+    page.wait_for_selector("#aija-preencher", timeout=15000)
+
+    previa = page.text_content("#aija-aviso") or ""
+    assert "3 perguntas neste passo" in previa
+    assert "2 o sistema sabe responder" in previa
+    assert page.input_value("#e2e_cor") == "", "escreveu antes do clique"
+
+    # 3. O clique é do candidato. Só aqui o formulário muda.
+    page.click("#aija-preencher")
     page.wait_for_function("document.querySelector('#e2e_cor').value !== ''",
                            timeout=15000)
 
@@ -192,8 +201,9 @@ def test_extensao_grava_o_vinculo_da_aba(api, acervo, navegador):
     page.goto(URL_PUBLICA, wait_until="load")
     page.wait_for_timeout(800)
     page.click("text=Candidatar-se")
-    page.wait_for_function("document.querySelector('#e2e_cor').value !== ''",
-                           timeout=15000)
+    # O vínculo é gravado na consulta, antes do clique: identificar a vaga não
+    # depende de escrever no formulário.
+    page.wait_for_selector("#aija-preencher", timeout=15000)
 
     with get_session() as s:
         vinculo = (s.query(VinculoCandidatura)

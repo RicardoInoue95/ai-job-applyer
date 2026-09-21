@@ -33,6 +33,9 @@ async function chamar(caminho, opcoes) {
 
 const ROTAS = { responder: "/responder", aprender: "/aprender",
                 vincular: "/vincular", perfil_linkedin: "/perfil_linkedin" };
+// Consultas sem corpo. Separadas das rotas de POST para o handler genérico não
+// mandar `Content-Type: application/json` num GET.
+const CONSULTAS = { situacao_perfil: "/perfil_linkedin" };
 
 // Qual vaga estava aberta em cada aba. A URL do formulário da Gupy não carrega
 // o `jobId`; a da página pública carrega, e é por ela que o candidato passa
@@ -53,6 +56,15 @@ chrome.runtime.onMessage.addListener((msg, remetente, responder) => {
     if (aba !== undefined) vagaDaAba.set(aba, msg.url);
     responder({ ok: true });
     return false;
+  }
+
+  const consulta = CONSULTAS[msg?.tipo];
+  if (consulta) {
+    chamar(consulta)
+      .then((dados) => responder({ ok: true, dados }))
+      .catch((e) => responder({ ok: false, erro: String(e.message),
+                                status: e.status || 0, corpo: e.corpo || {} }));
+    return true;
   }
 
   const rota = ROTAS[msg?.tipo];
