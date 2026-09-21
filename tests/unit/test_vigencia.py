@@ -120,18 +120,46 @@ def test_gupy_json_quebrado_nao_encerra(monkeypatch):
 
 # ── inhire ────────────────────────────────────────────────────────────────────
 
+def _inhire(jobs_page):
+    """Formato real de `/job-posts/public/pages`: é o que o coletor lê."""
+    return lambda *a, **k: SimpleNamespace(
+        status_code=200, json=lambda: {"tenantName": "Radix", "jobsPage": jobs_page})
+
+
 def test_inhire_presente_na_lista_esta_aberta(monkeypatch):
-    monkeypatch.setattr(vigencia.requests, "get", lambda *a, **k: SimpleNamespace(
-        status_code=200, json=lambda: [{"id": "abc-123"}]))
+    monkeypatch.setattr(vigencia.requests, "get", _inhire(
+        [{"jobId": "abc-123", "status": "published"}]))
     assert checar(_vaga("inhire", "https://radix.inhire.app/vagas/abc-123")
                   )[0] is Vigencia.ABERTA
 
 
 def test_inhire_ausente_da_lista_esta_encerrada(monkeypatch):
-    monkeypatch.setattr(vigencia.requests, "get", lambda *a, **k: SimpleNamespace(
-        status_code=200, json=lambda: [{"id": "outra"}]))
+    monkeypatch.setattr(vigencia.requests, "get", _inhire(
+        [{"jobId": "outra", "status": "published"}]))
     assert checar(_vaga("inhire", "https://radix.inhire.app/vagas/abc-123")
                   )[0] is Vigencia.ENCERRADA
+
+
+def test_inhire_despublicada_esta_encerrada(monkeypatch):
+    monkeypatch.setattr(vigencia.requests, "get", _inhire(
+        [{"jobId": "abc-123", "status": "draft"}]))
+    assert checar(_vaga("inhire", "https://radix.inhire.app/vagas/abc-123")
+                  )[0] is Vigencia.ENCERRADA
+
+
+@pytest.mark.parametrize("corpo", [
+    {"tenantName": "Radix", "jobsPage": []},
+    {"data": [{"id": "abc-123"}]},          # o formato que a checagem antiga lia
+    [{"id": "abc-123"}],
+], ids=["tenant_vazio", "formato_antigo", "lista_solta"])
+def test_inhire_listagem_vazia_ou_estranha_nao_encerra(monkeypatch, corpo):
+    """Zero vagas no tenant inteiro é mais provável formato que mudou do que
+    empresa sem vaga — e foi exatamente assim que toda a inhire foi encerrada
+    de uma vez, com as páginas respondendo 200."""
+    monkeypatch.setattr(vigencia.requests, "get", lambda *a, **k: SimpleNamespace(
+        status_code=200, json=lambda: corpo))
+    assert checar(_vaga("inhire", "https://radix.inhire.app/vagas/abc-123")
+                  )[0] is Vigencia.INDETERMINADA
 
 
 def test_inhire_sem_tenant_no_link():

@@ -181,18 +181,79 @@ def _pontuar_idioma(exigido: str, idiomas_curriculo: list[dict]) -> tuple[float,
     return 0.0, "vaga exige inglês e o currículo não lista o idioma"
 
 
-def _pontuar_localizacao(modalidade: str, loc_vaga: str | None, loc_candidato: str) -> tuple[float, str | None]:
+#: Palavras que aparecem em `localizacoes_alvo` e não são cidade. "Remoto" já é
+#: tratado pela modalidade, e deixá-lo na lista faria qualquer vaga presencial
+#: numa cidade chamada "Remoto" — nenhuma — casar, mas sobretudo polui o motivo
+#: que a interface mostra.
+_NAO_CIDADE = {"remoto", "remote", "hibrido", "híbrido", "presencial", "brasil",
+               "qualquer lugar", "anywhere"}
+
+
+def locais_alvo() -> tuple[str, ...]:
+    """Cidades de `coleta.localizacoes_alvo`, sem as que não são cidade."""
+    from jobapplier.config.manager import ConfigManager
+
+    bruto = (ConfigManager().get("coleta") or {}).get("localizacoes_alvo") or []
+    return tuple(c for c in bruto
+                 if isinstance(c, str) and _sem_acento(c).strip() not in _NAO_CIDADE)
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+
+    return "".join(c for c in unicodedata.normalize("NFD", (texto or "").lower())
+                   if unicodedata.category(c) != "Mn")
+
+
+def _cidade_de(local: str) -> str:
+    """`Campinas, São Paulo, Brasil` → `campinas`.
+
+    Só o primeiro campo. Procurar o nome em qualquer posição era o bug: a cidade
+    do candidato ("São Paulo") é substring do ESTADO de toda vaga do interior,
+    então "Franca, São Paulo, Brasil" presencial pontuava igual à capital — 400 km
+    de distância valendo nota cheia, e por acidente, não por decisão.
+    """
+    return _sem_acento(local).split(",")[0].strip()
+
+
+def _local_aceito(loc_vaga: str, aceitas: set[str]) -> bool:
+    """A vaga acontece numa cidade que o candidato aceita?
+
+    Dois formatos convivem no acervo e pedem regras diferentes:
+
+    - `Cidade, Estado, País` (Gupy, três campos) — compara só o **primeiro**.
+      O segundo é o estado, e "São Paulo" estado casaria com "São Paulo" cidade.
+    - texto livre (`Brazil (São Paulo - Hybrid)`, `Sao Paulo`) — procura na
+      string inteira. Aqui não há campo de estado para confundir, e exigir
+      formato esconderia vaga da capital escrita solta, que é 100 das 410 da fila.
+    """
+    partes = [p.strip() for p in _sem_acento(loc_vaga).split(",")]
+    if len(partes) >= 3:
+        return partes[0] in aceitas
+    inteiro = _sem_acento(loc_vaga)
+    return any(cidade and cidade in inteiro for cidade in aceitas)
+
+
+def _pontuar_localizacao(modalidade: str, loc_vaga: str | None, loc_candidato: str,
+                         locais_aceitos: tuple[str, ...] = ()) -> tuple[float, str | None]:
+    """Nota de localização. `locais_aceitos` são cidades que o candidato topa.
+
+    Presencial e híbrido dependem de onde o trabalho acontece, e isso é decisão
+    do candidato, não dedução: quem aceita Campinas declara Campinas em
+    `coleta.localizacoes_alvo`. Sem declaração, vale a cidade do currículo.
+    """
     if modalidade == "Remoto":
         return float(PESO_LOCALIZACAO), None
 
-    candidato = (loc_candidato or "").lower()
     vaga_loc = (loc_vaga or "").lower()
     if not vaga_loc:
         return PESO_LOCALIZACAO * 0.7, None
 
-    # Compara a cidade, que é o que determina deslocamento.
-    cidade_candidato = candidato.split(",")[0].strip()
-    if cidade_candidato and cidade_candidato in vaga_loc:
+    aceitas = {_cidade_de(c) for c in (locais_aceitos or ())}
+    aceitas.add(_cidade_de(loc_candidato))
+    aceitas.discard("")
+
+    if _local_aceito(loc_vaga, aceitas):
         return float(PESO_LOCALIZACAO), None
 
     if modalidade == "Presencial":
@@ -208,13 +269,20 @@ def _pontuar_setor(setor_vaga: str | None, setores_candidato: set[str]) -> tuple
     return PESO_SETOR * 0.45, f"sem experiência prévia no setor {setor_vaga}"
 
 
-def pontuar(vaga, resume_json: dict, anos_experiencia: float) -> dict:
+def pontuar(vaga, resume_json: dict, anos_experiencia: float,
+            locais_aceitos: tuple[str, ...] | None = None) -> dict:
     """Score determinístico de 0 a 100. Mesmo formato do scorer por LLM, mais campos.
 
     Os campos extras — `hard_requirements_met`, `missing_required`, `confidence` —
     existem porque um número sozinho não sustenta a decisão de candidatar. Uma
     vaga pode pontuar bem e ainda assim ter um requisito eliminatório ausente.
+
+    `locais_aceitos` são as cidades onde o candidato aceita trabalhar presencial
+    ou híbrido. Omitido, sai de `coleta.localizacoes_alvo` — que até aqui era
+    chave morta, gravada pela tela de Configurações e lida por ninguém.
     """
+    if locais_aceitos is None:
+        locais_aceitos = locais_alvo()
     normalizado = getattr(vaga, "normalizado_json", None) or {}
 
     tec_vaga = normalizado.get("tecnologias") or []
@@ -246,6 +314,7 @@ def pontuar(vaga, resume_json: dict, anos_experiencia: float) -> dict:
         normalizado.get("modalidade") or "Desconhecida",
         normalizado.get("localizacao"),
         resume_json.get("localizacao") or "",
+        locais_aceitos,
     )
 
     total = p_skills + p_sen + p_setor + p_idioma + p_local

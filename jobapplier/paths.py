@@ -18,6 +18,9 @@ CONFIG_JSON = DATA / "config.json"
 RESUME_JSON = DATA / "resume.json"
 RESUMES = DATA / "resumes"
 COVER_LETTERS = DATA / "cover_letters"
+#: Currículo e carta escritos à mão para UMA vaga: ``dossies/<vaga_id>/``.
+#: Ver ``jobapplier/manuscrito.py``.
+DOSSIES = DATA / "dossies"
 SESSIONS = DATA / "sessions"
 SCREENSHOTS = DATA / "screenshots"
 LINKEDIN_SESSION = SESSIONS / "linkedin.json"
@@ -32,6 +35,7 @@ __all__ = [
     "CONFIG_JSON",
     "COVER_LETTERS",
     "DATA",
+    "DOSSIES",
     "ENV",
     "GUPY_SESSION",
     "LINKEDIN_SESSION",

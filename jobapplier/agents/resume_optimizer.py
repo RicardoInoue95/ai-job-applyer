@@ -162,7 +162,19 @@ def optimize(base_profile: dict, vaga, client: "LLMClient | None" = None) -> dic
         resume_json=json.dumps(base_profile, ensure_ascii=False, indent=2),
     ) + mod_idioma.instrucao_para(lingua)
 
-    if client is None:
+    # Manuscrito antes do modelo: currículo escrito à mão para ESTA vaga vale
+    # mais que qualquer reescrita automática — desde que não mude fato. A
+    # conferência levanta, e quem chama trata como dossiê que falhou: currículo
+    # que afirma o que o mestre não afirma não sai (invariante 3, falha fechada).
+    from jobapplier import manuscrito
+
+    escrito = manuscrito.curriculo(getattr(vaga, "id", None))
+    if escrito is not None:
+        manuscrito.conferir_fatos(escrito, base_profile)
+        logger.info("Vaga id=%s: currículo manuscrito em %s, modelo dispensado.",
+                    getattr(vaga, "id", "?"), manuscrito.pasta(vaga.id))
+        otimizado = escrito
+    elif client is None:
         logger.info("Otimização sem LLM: reordenando tecnologias, sem reescrever texto.")
         otimizado = otimizar_sem_llm(base_profile, vaga)
         # O idioma do currículo é lido do próprio texto, não presumido: desde que

@@ -139,9 +139,17 @@ def _inhire(vaga) -> tuple[Vigencia, str]:
     if r.status_code != 200:
         return Vigencia.INDETERMINADA, f"HTTP {r.status_code}"
     dados = r.json()
-    vagas = dados if isinstance(dados, list) else (
-        dados.get("data") or dados.get("items") or [])
-    abertos = {str(v.get("id") or v.get("slug") or "") for v in vagas}
+    # Mesmo formato que `collectors/inhire.py` lê: `jobsPage`, com `jobId` e
+    # `status`. A primeira versão procurava `data`/`items` e `id`/`slug`, achava
+    # zero sempre, e marcou como encerrada toda vaga da inhire — inclusive a de
+    # melhor score da fila, com a página respondendo 200.
+    brutas = dados.get("jobsPage") if isinstance(dados, dict) else None
+    if not brutas:
+        # Tenant sem NENHUMA vaga é indistinguível de formato que mudou, e a
+        # segunda hipótese já aconteceu. Na dúvida, não encerra.
+        return Vigencia.INDETERMINADA, "listagem do tenant veio vazia"
+    abertos = {str(v.get("jobId") or "") for v in brutas
+               if str(v.get("status", "")).lower() == "published"}
     identificador = link.rstrip("/").split("/")[-1]
     if identificador and identificador in abertos:
         return Vigencia.ABERTA, ""

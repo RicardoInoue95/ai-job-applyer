@@ -111,7 +111,18 @@ def montar_sem_llm(resume_json: dict, vaga) -> str:
 
 
 def generate(resume_json: dict, vaga, client: "LLMClient | None" = None) -> str | None:
-    """Gera cover letter. Sem ``client``, monta a versão factual sem modelo."""
+    """Gera cover letter. Sem ``client``, monta a versão factual sem modelo.
+
+    Carta manuscrita para a vaga (``data/dossies/<id>/carta.txt``) vence os
+    dois caminhos — ver `jobapplier.manuscrito`.
+    """
+    from jobapplier import manuscrito
+
+    escrita = manuscrito.carta(getattr(vaga, "id", None))
+    if escrita:
+        logger.info("Vaga id=%s: carta manuscrita, modelo dispensado.",
+                    getattr(vaga, "id", "?"))
+        return escrita
     if client is None:
         return montar_sem_llm(resume_json, vaga)
 

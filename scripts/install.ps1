@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$DATABASE_URL = "postgresql://jobapplier:jobapplier@localhost:5432/jobapplier"
+$DATABASE_URL = "postgresql://jobapplier:jobapplier@localhost:55432/jobapplier"
 
 # Garante que Docker e ferramentas do venv estejam no PATH
 $extraPaths = @(

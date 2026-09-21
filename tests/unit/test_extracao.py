@@ -326,3 +326,99 @@ def test_ollama_esta_registrado_e_dispensa_chave():
     assert "ollama" in llm.PROVEDORES
     assert "ollama" in llm.SEM_CHAVE
     assert llm.chave_do_provedor("ollama") == "local"
+
+
+# ── Localização declarada ─────────────────────────────────────────────────────
+# Onde o trabalho acontece é decisão do candidato, não dedução. Até aqui a
+# comparação procurava a cidade dele em qualquer posição da localização da vaga,
+# e como ele mora em "São Paulo" — que é também o nome do ESTADO — toda vaga
+# presencial do interior pontuava nota cheia. Franca fica a 400 km.
+
+def test_cidade_do_candidato_nao_casa_com_o_estado_homonimo():
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="Franca, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 0.0
+
+
+def test_cidade_declarada_pontua_cheio():
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="Campinas, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=("Campinas", "Jundiaí"),
+    )
+    assert r["breakdown"]["localizacao"] == 10.0
+
+
+def test_cidade_declarada_casa_sem_acento_e_sem_caixa():
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Híbrido", localizacao="JUNDIAI, Sao Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=("jundiaí",),
+    )
+    assert r["breakdown"]["localizacao"] == 10.0
+
+
+def test_cidade_nao_declarada_segue_penalizada():
+    """Declarar Campinas não é declarar o estado inteiro."""
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="Bauru, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=("Campinas",),
+    )
+    assert r["breakdown"]["localizacao"] == 0.0
+
+
+def test_a_cidade_do_curriculo_vale_sem_declaracao():
+    """Não declarar nada não pode tirar a própria cidade do candidato."""
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="São Paulo, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 10.0
+
+
+def test_remoto_ignora_a_lista_de_cidades():
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Remoto", localizacao="Bauru, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 10.0
+
+
+def test_locais_alvo_descarta_o_que_nao_e_cidade(monkeypatch):
+    """`localizacoes_alvo` mistura cidade com modalidade ("Remoto", "Remote").
+    Modalidade já é tratada antes; aqui só atrapalharia o motivo exibido."""
+    from jobapplier.agents import extracao
+
+    monkeypatch.setattr(
+        "jobapplier.config.manager.ConfigManager.get",
+        lambda self, *a, **k: {"localizacoes_alvo": ["São Paulo", "Remoto", "Remote",
+                                                      "Campinas", "Brasil"]})
+    assert extracao.locais_alvo() == ("São Paulo", "Campinas")
+
+
+def test_texto_livre_procura_a_cidade_na_string_inteira():
+    """`Brazil (São Paulo - Hybrid)` não tem campo de estado para confundir, e
+    são 100 das 410 vagas da fila. Exigir `Cidade, Estado, País` as esconderia."""
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Híbrido", localizacao="Brazil (São Paulo - Hybrid)"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 10.0
+
+
+def test_texto_livre_de_outro_pais_nao_casa():
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="San Francisco Bay Area"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 0.0
+
+
+def test_estado_no_formato_completo_nao_basta():
+    """A trava central: `Bauru, São Paulo, Brasil` tem "São Paulo" no campo do
+    ESTADO, e isso não pode valer como a cidade do candidato."""
+    r = pontuar(
+        _vaga_pontuavel(modalidade="Presencial", localizacao="Bauru, São Paulo, Brasil"),
+        CURRICULO, 4, locais_aceitos=(),
+    )
+    assert r["breakdown"]["localizacao"] == 0.0
