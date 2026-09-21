@@ -95,7 +95,8 @@ O nome da empresa vira `{empresa}` na chave das classes globais, então "Você
 trabalha na empresa X?" tem uma resposta só para todas. Em pergunta `ABERTA` não
 neutraliza: ali o nome é o assunto.
 
-Revisão em `ui/pages/6_Respostas.py` — memória só é aceitável se for revisável.
+Revisão em Configurações → Respostas aprendidas (`ui/_respostas.py`; a página
+`ui/pages/6_Respostas.py` só a chama) — memória só é aceitável se for revisável.
 Esvaziar uma resposta **apaga** a entrada; gravar `""` faria o banco responder
 nada em todo formulário seguinte, em silêncio.
 
@@ -257,12 +258,17 @@ respondeu 404 sem corpo do catálogo; o cliente chamou isso de "API fora" ao lad
 de um ponto verde que acabara de falar com ela. Resposta sem `erro.codigo` agora
 é `contrato-desconhecido` — versão diferente —, não "não está rodando".
 
-`ui/pages/7_Documentos.py` + `jobapplier/documentos.py` — todo currículo e
+`ui/_documentos.py` + `jobapplier/documentos.py` — todo currículo e
 carta em disco (593 e 566), com busca. **Tabela, não cartões**: a primeira
 versão punha três documentos por tela. A fonte é o disco, porque só 351 dos 593
 têm linha em `candidaturas` — o dossiê é gerado para o baralho sem candidatura.
 Medido na tela: no `st.dataframe`, clicar no texto seleciona a *célula*; quem
 seleciona a linha é a caixa da primeira coluna, e a legenda diz isso.
+É acervo, não decisão: saiu da barra lateral ("Mais" tem só Configurações) e
+vive como seção de Configurações, junto com Respostas aprendidas. O corpo das
+duas mora em `ui/_documentos.py` / `ui/_respostas.py` com `render(com_cabecalho)`;
+as páginas em `pages/` são de três linhas e continuam roteáveis por URL —
+`st.navigation` não tem página escondida, então `_ui` oculta o item por CSS.
 
 ### Preencher tudo: a extensão mostra antes, escreve no clique
 
@@ -962,6 +968,30 @@ do viewport em página de trabalho, reveja o `layout`.
 
 A régua de tipografia, medida de linha e espaço está em `docs/DESIGN_UI.md`, e é
 aplicada por `ui/_estilo.py` — não invente escala nova por página.
+
+O contrato de interface (dez regras, três níveis de informação, três níveis de
+superfície, escala de espaço `--e1..--e7`) está na seção "O contrato" do mesmo
+arquivo. As decisões que ele fixa e que já custaram retrabalho:
+
+- **Cartão só para o protagonista.** Início tem um cartão: o próximo passo.
+  Revisar tem um: a vaga em decisão. Lista de vagas tem borda por item, mas o
+  "Detalhes" de cada um é link, não segunda caixa dentro da caixa.
+- **Índigo só para ação.** Barras de aderência, métricas e progresso são cinza;
+  o único índigo da tela é o botão que faz alguma coisa.
+- **Status não vai na lista de vagas.** Em "aguardando você" é sempre o mesmo, e
+  nos outros filtros você acabou de escolhê-lo. Fica só "● Preparada" quando há
+  dossiê, porque isso muda o que fazer com a vaga.
+- **Filtro é dropdown, não slider.** "80%+" se lê e se lembra; slider de 5 em 5
+  pede ajuste fino que ninguém quer fazer em lista.
+- **Lista curta é chip** (`st.multiselect(accept_new_options=True)`), não
+  textarea "um por linha": cargos, cidades, palavras bloqueadas. Slugs do
+  Greenhouse (150) seguem em textarea, atrás de um expander.
+- **Configurações navega por lista vertical** (`st.radio` estilizado via
+  `.st-key-nav-config`), não por segmented control: nove rótulos numa linha não
+  cabem. Cada etapa do assistente já se intitula; só Documentos e Respostas
+  ganham título da navegação.
+- **Localização na tela é a cidade** (`_ui.local_curto`): "São Paulo, São
+  Paulo, Brasil" vira "São Paulo". Texto livre fica como está.
 
 **Limites do Streamlit já testados, para não repetir a tentativa:**
 

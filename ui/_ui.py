@@ -58,6 +58,9 @@ CSS = """
     --txt-apoio: .875rem;
     --txt-meta: .8rem;
     --medida: 68ch;
+
+    /* Escala de espaço (docs/DESIGN_UI.md): sem valor fora dela. */
+    --e1: 4px; --e2: 8px; --e3: 12px; --e4: 16px; --e5: 24px; --e6: 32px; --e7: 48px;
   }
 
   /* ── Chrome do Streamlit ──────────────────────────────────────────────── */
@@ -117,15 +120,50 @@ CSS = """
 
   /* ── Cabeçalho de página ──────────────────────────────────────────────── */
   .pg { margin-bottom: 1.5rem; }
-  .pg-titulo { font-size: 1.5rem; font-weight: 650; color: var(--txt-1);
-               letter-spacing: -.018em; line-height: 1.2; }
+  .pg-titulo { font-size: 1.85rem; font-weight: 700; color: var(--txt-1);
+               letter-spacing: -.02em; line-height: 1.15; }
   .pg-desc { font-size: var(--txt-apoio); color: var(--txt-3); margin-top: .22rem;
              max-width: var(--medida); }
+
+  /* Na lista de vagas, "Detalhes" é um link discreto, não uma segunda caixa
+     dentro do cartão: cem cartões com duas bordas cada não se escaneiam. */
+  .st-key-lista [data-testid="stExpander"] details { border: 0; background: transparent; }
+  .st-key-lista [data-testid="stExpander"] summary { padding: var(--e1) 0; }
+  .st-key-lista [data-testid="stExpander"] summary p { font-size: var(--txt-apoio); color: var(--txt-3); }
+  .st-key-lista [data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding-left: 0; padding-right: 0; }
+
+  /* "Mais" tem só Configurações; Documentos fica roteável (Configurações →
+     Documentos e links do produto) sem gastar linha na barra. */
+  [data-testid="stSidebarNav"] a[href$="/documentos"] { display: none; }
+
+  /* Navegação interna de Configurações: um rádio que parece lista de links. */
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"] {
+    padding: var(--e2) var(--e3); border-radius: var(--raio-p); margin: 0;
+    display: flex; align-items: center; }
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child { display: none; }
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"] p { font-size: var(--txt-apoio); color: var(--txt-2); }
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"]:hover { background: var(--fundo); }
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) { background: var(--acao-suave); }
+  .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p { color: var(--acao); font-weight: 600; }
+  .st-key-nav-config [data-testid="stRadio"] > div[role="radiogroup"] { gap: 2px; }
+
+  /* Primeira seção de uma coluna lateral alinha com o topo do cartão. */
+  .st-key-lado .sec:first-child, .st-key-lado > div > div:first-child .sec { margin-top: 0; }
+  .st-key-proximo [data-testid="stPageLink"] { margin-top: var(--e3); }
+
+  /* Parágrafo de abertura do Início: maior que corpo, menor que título. */
+  .lede { font-size: 1.1rem; line-height: 1.5; color: var(--txt-2);
+          margin: var(--e2) 0 var(--e4); max-width: var(--medida); }
+  .lede b { color: var(--txt-1); }
+  /* Cargo em destaque no cartão protagonista: H2 do contrato. */
+  .destaque-titulo { font-size: 1.3rem; font-weight: 650; color: var(--txt-1);
+                     line-height: 1.25; margin: var(--e1) 0 var(--e1); }
+  .meta-linha { font-size: var(--txt-meta); color: var(--txt-3); }
 
   /* ── Seção ────────────────────────────────────────────────────────────── */
   .sec { font-size: .78rem; font-weight: 650; letter-spacing: .045em;
          text-transform: uppercase; color: var(--txt-3);
-         margin: 1.6rem 0 .7rem; }
+         margin: var(--e6) 0 var(--e3); }
 
   /* ── Cartão ───────────────────────────────────────────────────────────── */
   .cartao { background: var(--superficie); border: 1px solid var(--borda);
@@ -141,8 +179,8 @@ CSS = """
              line-height: 1.15; margin-top: .2rem;
              font-variant-numeric: tabular-nums; }
   .met-nota { font-size: var(--txt-meta); color: var(--txt-3); margin-top: .1rem; }
-  .met.destaque { border-color: var(--acao); background: var(--acao-suave); }
-  .met.destaque .met-val, .met.destaque .met-rot { color: var(--acao); }
+  /* Destaque por tamanho, não por índigo: índigo é ação (contrato, regra 6). */
+  .met.destaque .met-val { font-size: 2.1rem; }
 
   /* ── Badge ────────────────────────────────────────────────────────────── */
   .bdg { display: inline-flex; align-items: center; gap: .25rem;
@@ -161,7 +199,7 @@ CSS = """
   .vaga:hover { border-color: var(--borda-forte); }
   .vaga-topo { display: flex; align-items: baseline; gap: .6rem;
                justify-content: space-between; }
-  .vaga-titulo { font-size: 1rem; font-weight: 600; color: var(--txt-1);
+  .vaga-titulo { font-size: 1.05rem; font-weight: 600; color: var(--txt-1);
                  line-height: 1.35; }
   .vaga-empresa { font-size: var(--txt-apoio); color: var(--txt-2); }
   .vaga-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;
@@ -174,7 +212,7 @@ CSS = """
           font-size: var(--txt-apoio); white-space: nowrap; }
   .ader-barra { height: 4px; border-radius: 2px; background: var(--borda);
                 overflow: hidden; margin-top: .3rem; width: 68px; }
-  .ader-barra i { display: block; height: 100%; background: var(--acao); }
+  .ader-barra i { display: block; height: 100%; background: var(--borda-forte); }
   /* CTA interno como botão. `st.page_link` é o único jeito de navegar entre
      páginas sem abrir aba nova, e renderiza como link de texto; num container
      com `key="cta"` ele ganha a cara da ação primária. Só um por tela. */
@@ -195,7 +233,7 @@ CSS = """
           align-items: center; font-size: var(--txt-apoio); color: var(--txt-2);
           margin: .25rem 0; }
   .eixo .barra { height: 6px; border-radius: 3px; background: var(--borda); overflow: hidden; }
-  .eixo .barra i { display: block; height: 100%; background: var(--txt-3); }
+  .eixo .barra i { display: block; height: 100%; background: var(--borda-forte); }
   .eixo .num { text-align: right; color: var(--txt-3); }
 
   /* ── Estado vazio ─────────────────────────────────────────────────────── */
@@ -284,9 +322,10 @@ CSS = """
     font-size: 1.02rem; font-weight: 600; margin-top: .4rem;
   }
 
-  /* Slider e progresso em índigo, não no vermelho de marca. */
+  /* Slider é controle do usuário (ação): índigo. Progresso é indicador:
+     neutro — índigo em barra é o que fazia tudo parecer clicável. */
   [data-testid="stSlider"] [role="slider"] { background: var(--acao) !important; }
-  [data-testid="stProgress"] > div > div > div { background: var(--acao); }
+  [data-testid="stProgress"] > div > div > div { background: var(--borda-forte); }
 
   .num { font-variant-numeric: tabular-nums; }
 </style>
@@ -323,6 +362,13 @@ def cabecalho(titulo: str, descricao: str = "", acao=None) -> None:
         )
     with dir_:
         acao()
+
+
+def local_curto(localizacao: str) -> str:
+    """"São Paulo, São Paulo, Brasil" → "São Paulo". Texto livre fica como está:
+    só o formato de três campos tem estado e país para cortar."""
+    partes = [p.strip() for p in (localizacao or "").split(",")]
+    return partes[0] if len(partes) == 3 and partes[0] else (localizacao or "")
 
 
 def secao(rotulo: str) -> None:

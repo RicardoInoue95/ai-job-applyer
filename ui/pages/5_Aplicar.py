@@ -272,11 +272,12 @@ if st.session_state.get("ultima_decisao") and st.button(
 # A decisão precisa da vaga E do material preparado ao mesmo tempo. Empilhado
 # numa coluna estreita, ver a ficha exigia rolar e perder o cartão de vista.
 
-coluna_vaga, coluna_apoio = st.columns([1.15, 1], gap="large")
+# 60/40: a esquerda decide, a direita é a candidatura pronta.
+coluna_vaga, coluna_apoio = st.columns([1.5, 1], gap="large")
 
 with coluna_vaga:
     plataforma = (vaga["plataforma"] or "").title()
-    local = vaga["localizacao"] or "Local não informado"
+    local = _ui.local_curto(vaga["localizacao"]) or "Local não informado"
     modo = (vaga["modalidade"] or "").capitalize()
     normalizado = (vaga["normalizado_json"]
                    if isinstance(vaga["normalizado_json"], dict) else {})
@@ -302,30 +303,28 @@ with coluna_vaga:
 
     # Ação principal em índigo; descarte discreto. O vermelho fica reservado a
     # erro e bloqueio — usá-lo em botão comum torna o vermelho real invisível.
+    # Uma primária, larga. Duas secundárias na linha de baixo. "Deixar para
+    # depois" não é ação equivalente às outras — é adiar a decisão — e por
+    # isso não ganha botão do mesmo peso.
     st.write("")
-    a1, a2 = st.columns([1.4, 1])
-    with a1:
-        st.link_button("Abrir e candidatar", vaga["link"] or "#",
-                       icon=":material/open_in_new:", type="primary",
-                       use_container_width=True)
-    with a2:
+    st.link_button("Abrir e candidatar", vaga["link"] or "#",
+                   icon=":material/open_in_new:", type="primary",
+                   use_container_width=True)
+    b1, b2 = st.columns(2)
+    with b1:
         if st.button("Já me candidatei", icon=":material/check:",
                      use_container_width=True):
             decidir(vaga["id"], "enviada_manual", vaga["status"])
             st.rerun()
-
-    b1, b2 = st.columns(2)
-    with b1:
-        if st.button("Deixar para depois", icon=":material/schedule:",
-                     use_container_width=True,
-                     help="Sai da fila principal e fica guardada. Não se perde."):
-            decidir(vaga["id"], "adiada", vaga["status"])
-            st.rerun()
     with b2:
-        if st.button("Não é para mim", icon=":material/close:",
+        if st.button("Não tenho interesse", icon=":material/close:",
                      use_container_width=True):
             decidir(vaga["id"], "descartada_por_voce", vaga["status"])
             st.rerun()
+    if st.button("Deixar para depois", icon=":material/schedule:", type="tertiary",
+                 help="Sai da fila principal e fica guardada. Não se perde."):
+        decidir(vaga["id"], "adiada", vaga["status"])
+        st.rerun()
 
     # ── Por que combina (nível 2: evidência) ────────────────────────────────
     # O cartão já deu a conclusão. Aqui as barras por eixo e as tecnologias —
@@ -352,60 +351,85 @@ with coluna_vaga:
                 unsafe_allow_html=True,
             )
 
-with coluna_apoio:
+with coluna_apoio, st.container(key="lado"):
     pdf, carta = documentos(vaga["id"])
 
-    _ui.secao("Respostas do formulário")
+    # A coluna direita é a candidatura pronta, como checklist: currículo,
+    # carta, formulário — cada um com "✓" ou com o que falta. O texto da carta
+    # fica atrás de um clique: é nível 2, e aberto por padrão ocupava metade
+    # da coluna com um texto que se lê uma vez.
+    _ui.secao("Sua candidatura")
     with st.spinner("Lendo o formulário da vaga…"):
         f = carregar_ficha(vaga["id"])
 
+    linhas_check = []
+    linhas_check.append(("Currículo", bool(pdf),
+                         "adaptado para esta vaga" if pdf else "ainda não gerado"))
+    linhas_check.append(("Carta", bool(carta),
+                         "gerada" if carta else "não gerada — é opcional"))
     if f["situacao"] == "sem_suporte":
-        st.caption("Ainda não sei ler o formulário desta plataforma.")
+        linhas_check.append(("Formulário", None, "não sei ler o desta plataforma"))
     elif f["situacao"] != "ok":
-        st.warning(f"Não consegui ler o formulário — {f.get('detalhe', '')}",
-                   icon=":material/warning:")
+        linhas_check.append(("Formulário", None, "não consegui ler"))
     elif not f["itens"]:
-        st.success("Sem perguntas extras. Currículo e envio, só.",
-                   icon=":material/check_circle:")
+        linhas_check.append(("Formulário", True, "nenhuma pergunta adicional"))
     else:
-        st.caption(f"{f['respondidas']} de {f['total']} com resposta pronta")
-        for item in f["itens"]:
-            marca = ""
-            if item["eliminatoria"]:
-                marca = _ui.badge("eliminatória", "erro") + " "
-            elif item["obrigatoria"]:
-                marca = _ui.badge("obrigatória", "aviso") + " "
-            st.markdown(
-                f"{marca}<span style='font-size:.9rem;color:var(--txt-1);"
-                f"font-weight:550'>{item['pergunta']}</span>",
-                unsafe_allow_html=True,
-            )
-            if item["resposta"] and item["confirmar"]:
-                st.warning(f"Sugestão: **{item['resposta']}** — confirme antes "
-                           "de enviar, esta resposta pode eliminar você.",
-                           icon=":material/priority_high:")
-            elif item["resposta"]:
-                st.code(item["resposta"], language=None)
-            else:
-                opcoes = (" · opções: " + ", ".join(item["opcoes"])
-                          if item["opcoes"] else "")
-                st.caption(f"Sem resposta automática — responda você{opcoes}")
+        faltam = f["total"] - f["respondidas"]
+        linhas_check.append(("Formulário", faltam == 0,
+                             f"{f['respondidas']} de {f['total']} respondidas"
+                             + (f" · {faltam} sua{'s' if faltam != 1 else ''}" if faltam else "")))
 
-    _ui.secao("Currículo preparado")
+    for nome, ok, nota in linhas_check:
+        marca = ("✓" if ok else "—") if ok is not None else "?"
+        cor = "var(--ok)" if ok else ("var(--txt-3)" if ok is None else "var(--aviso)")
+        st.markdown(
+            f'<div style="display:flex;gap:.6rem;align-items:baseline;'
+            f'padding:.35rem 0;border-bottom:1px solid var(--borda)">'
+            f'<span style="color:{cor};font-weight:650;width:1rem">{marca}</span>'
+            f'<span style="color:var(--txt-1);font-weight:550;width:6.5rem">{nome}</span>'
+            f'<span style="color:var(--txt-3);font-size:var(--txt-apoio)">{nota}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
     if pdf:
-        st.download_button("Baixar currículo desta vaga", pdf.read_bytes(),
+        st.download_button("Baixar currículo", pdf.read_bytes(),
                            file_name=pdf.name, mime="application/pdf",
                            icon=":material/download:", use_container_width=True)
-        st.caption(f"Adaptado para esta vaga · {pdf.name}")
-    else:
-        st.caption("Currículo ainda não gerado para esta vaga.")
+
+    if f["situacao"] == "ok" and f["itens"]:
+        with st.expander(f"Perguntas do formulário ({f['total']})"):
+            for item in f["itens"]:
+                marca = ""
+                if item["eliminatoria"]:
+                    marca = _ui.badge("eliminatória", "erro") + " "
+                elif item["obrigatoria"]:
+                    marca = _ui.badge("obrigatória", "aviso") + " "
+                st.markdown(
+                    f"{marca}<span style='font-size:.9rem;color:var(--txt-1);"
+                    f"font-weight:550'>{item['pergunta']}</span>",
+                    unsafe_allow_html=True,
+                )
+                if item["resposta"] and item["confirmar"]:
+                    st.warning(f"Sugestão: **{item['resposta']}** — confirme antes "
+                               "de enviar, esta resposta pode eliminar você.",
+                               icon=":material/priority_high:")
+                elif item["resposta"]:
+                    st.code(item["resposta"], language=None)
+                else:
+                    opcoes = (" · opções: " + ", ".join(item["opcoes"])
+                              if item["opcoes"] else "")
+                    st.caption(f"Sem resposta automática — responda você{opcoes}")
 
     if carta:
-        _ui.secao("Carta de apresentação")
-        # Prévia legível primeiro; edição só para quem pedir. Textarea gigante
-        # é conteúdo editável com cara de formulário — aqui se lê e se copia.
-        _ui.previa(carta)
-        with st.expander("Ver ou editar o texto completo"):
+        # Um trecho para reconhecer, o resto atrás de um clique.
+        # O segundo parágrafo, não a saudação: é onde a carta diz quem você é.
+        paragrafos = [p.strip() for p in carta.strip().split("\n\n") if p.strip()]
+        trecho = paragrafos[1] if len(paragrafos) > 1 else (paragrafos[0] if paragrafos else "")
+        if len(trecho) > 200:
+            trecho = trecho[:200].rstrip() + "…"
+        st.caption(f"“{trecho}”")
+        with st.expander("Ler ou editar a carta completa"):
             st.text_area("carta", carta, height=320, label_visibility="collapsed",
                          key=f"carta_{vaga['id']}")
 

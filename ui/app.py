@@ -44,8 +44,9 @@ VAGAS = st.Page("pages/3_Vagas.py", title="Vagas",
 CANDIDATURAS = st.Page("pages/4_Candidaturas.py", title="Candidaturas",
                        icon=":material/send:", url_path="candidaturas")
 # Documentos continua acessível pela URL e por link dentro do produto, mas sai
-# da navegação: é acervo, não decisão. "Tenho 590 documentos" não é o que
-# ninguém quer pensar — "minha candidatura para a X está pronta" é.
+# da navegação: é acervo, não decisão, e mora como seção de Configurações.
+# `st.navigation` não tem página "roteável mas escondida", então ela entra na
+# lista e `_ui` esconde o item da barra por CSS (`stSidebarNav`).
 DOCUMENTOS = st.Page("pages/7_Documentos.py", title="Currículos e cartas",
                      icon=":material/description:", url_path="documentos")
 

@@ -464,20 +464,28 @@ def step_3():
     # ── Formulário de preferências ────────────────────────────────────────────
     saved = config.get("coleta") or {}
 
-    with st.form("prefs_form"):
-        cargos_raw = st.text_area(
-            "Cargos de interesse (um por linha)",
-            value="\n".join(saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer", "BI Analyst"])),
-            height=100,
-        )
+    # Chips, não textarea "um por linha": lista curta se lê de relance e se
+    # edita sem contar linhas. `accept_new_options` deixa digitar um valor que
+    # não está na lista — a lista É o que você já gravou.
+    def _chips(rotulo, valores, chave, ajuda=None, placeholder="Digite e Enter"):
+        valores = list(valores)
+        return st.multiselect(rotulo, options=valores, default=valores, key=chave,
+                              accept_new_options=True, placeholder=placeholder,
+                              help=ajuda)
 
-        col1, col2 = st.columns(2)
+    with st.form("prefs_form"):
+        cargos = _chips("Cargos de interesse",
+                        saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer",
+                                                  "BI Analyst"]), "chips_cargos")
+
+        col1, col2 = st.columns([2, 1])
         with col1:
-            localizacoes_raw = st.text_area(
-                "Localizações aceitas (uma por linha)",
-                value="\n".join(saved.get("localizacoes_alvo", ["São Paulo", "Remoto", "Remote"])),
-                height=90,
-            )
+            localizacoes = _chips(
+                "Cidades onde você aceita presencial ou híbrido",
+                saved.get("localizacoes_alvo", ["São Paulo", "Remoto", "Remote"]),
+                "chips_localizacoes",
+                ajuda="Remoto ignora esta lista. Presencial fora dela zera a "
+                      "nota de localização; híbrido leva 40%.")
         with col2:
             modalidade = st.selectbox(
                 "Modalidade preferida",
@@ -493,50 +501,55 @@ def step_3():
             placeholder="ex: R$ 8.000 - R$ 12.000",
         )
 
-        palavras_bloqueadas_raw = st.text_area(
-            "Palavras bloqueadas no título (uma por linha)",
-            value="\n".join(saved.get("palavras_bloqueadas", ["Estágio", "Trainee", "Junior"])),
-            height=75,
-            help="Vagas com essas palavras no título serão ignoradas automaticamente",
-        )
+        # O que muda raramente fica atrás de um clique; o formulário abre no
+        # que muda — cargo, cidade, pretensão.
+        with st.expander("Filtros avançados"):
+            palavras_bloqueadas = _chips(
+                "Palavras bloqueadas no título",
+                saved.get("palavras_bloqueadas", ["Estágio", "Trainee", "Junior"]),
+                "chips_bloqueadas",
+                ajuda="Vagas com essas palavras no título são ignoradas antes de "
+                      "qualquer análise.")
 
-        st.markdown("**Faixas de aderência (0 a 100)**")
-        saved_scoring = config.get("scoring") or {}
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            threshold_excelente = st.slider(
-                "Autoaprovação (score ≥)",
-                min_value=70, max_value=100,
-                value=int(saved_scoring.get("threshold_excelente", 85)),
-                help="Vagas acima deste score são aprovadas automaticamente",
-            )
-        with col_s2:
-            threshold_bom = st.slider(
-                "Revisão manual (score ≥)",
-                min_value=50, max_value=99,
-                value=int(saved_scoring.get("threshold_bom", 70)),
-                help="Vagas neste range entram na fila de aprovação manual",
-            )
+            st.markdown("**Faixas de aderência (0 a 100)**")
+            saved_scoring = config.get("scoring") or {}
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                threshold_excelente = st.slider(
+                    "Autoaprovação (score ≥)",
+                    min_value=70, max_value=100,
+                    value=int(saved_scoring.get("threshold_excelente", 85)),
+                    help="Vagas acima deste score são aprovadas automaticamente",
+                )
+            with col_s2:
+                threshold_bom = st.slider(
+                    "Revisão manual (score ≥)",
+                    min_value=50, max_value=99,
+                    value=int(saved_scoring.get("threshold_bom", 70)),
+                    help="Vagas neste range entram na fila de aprovação manual",
+                )
 
-        st.markdown("**Empresas monitoradas**")
-        greenhouse_raw = st.text_area(
-            "Greenhouse (slugs, um por linha)",
-            value="\n".join(saved.get("empresas_greenhouse", [])),
-            height=130,
-            help="Preenchido automaticamente pela descoberta acima, ou adicione manualmente",
-        )
-        st.caption("🔜 **Lever** — API pública descontinuada. Coleta via browser será implementada na Fase 4 (junto com LinkedIn).")
+        with st.expander(f"Empresas monitoradas no Greenhouse "
+                         f"({len(saved.get('empresas_greenhouse', []))})"):
+            greenhouse_raw = st.text_area(
+                "Slugs, um por linha",
+                value="\n".join(saved.get("empresas_greenhouse", [])),
+                height=160,
+                help="Preenchido automaticamente pela descoberta acima, ou adicione manualmente",
+            )
+            st.caption("Lever: sondagem de 22 slugs devolveu 2 vagas aderentes; "
+                       "a coleta fica desligada até valer a pena.")
         lever_raw = "\n".join(saved.get("empresas_lever", []))
 
         submitted = st.form_submit_button("Salvar preferências", type="primary")
 
     if submitted:
         prefs = {
-            "cargos_alvo": [c.strip() for c in cargos_raw.splitlines() if c.strip()],
-            "localizacoes_alvo": [loc.strip() for loc in localizacoes_raw.splitlines() if loc.strip()],
+            "cargos_alvo": [c.strip() for c in cargos if c.strip()],
+            "localizacoes_alvo": [loc.strip() for loc in localizacoes if loc.strip()],
             "modalidade_preferida": modalidade,
             "salario_esperado": salario.strip(),
-            "palavras_bloqueadas": [p.strip() for p in palavras_bloqueadas_raw.splitlines() if p.strip()],
+            "palavras_bloqueadas": [p.strip() for p in palavras_bloqueadas if p.strip()],
             "empresas_greenhouse": [s.strip() for s in greenhouse_raw.splitlines() if s.strip()],
             "empresas_lever": [s.strip() for s in lever_raw.splitlines() if s.strip()],
             "setores_interesse": saved.get("setores_interesse", ""),
@@ -1186,9 +1199,28 @@ SECOES = [
     ("Plataformas", 5, "Empresas e palavras-chave por plataforma"),
     ("LinkedIn", 4, "Sessão salva e busca"),
     ("Currículo", 2, "Substituir o currículo base"),
+    ("Documentos", 9, "Currículos e cartas que o sistema já gerou"),
+    ("Respostas aprendidas", 10, "O que você digitou uma vez e o sistema repete"),
     ("Provedor de IA", 1, "Chave de API — opcional, o sistema roda sem"),
     ("Notificações", 6, "Relatório diário por e-mail"),
 ]
+
+
+def _secao_documentos() -> None:
+    import _documentos
+
+    _documentos.render(com_cabecalho=False)
+
+
+def _secao_respostas() -> None:
+    import _respostas
+
+    _respostas.render(com_cabecalho=False)
+
+
+# Acervo e memória não são etapas do assistente: só existem no modo ajuste.
+STEP_HANDLERS[9] = _secao_documentos
+STEP_HANDLERS[10] = _secao_respostas
 
 
 def _modo_assistente() -> None:
@@ -1201,35 +1233,48 @@ def _modo_assistente() -> None:
 
 
 def _modo_ajuste() -> None:
-    """Abas, não etapas. Depois de configurado, o wizard é obstáculo: quem abre
-    para mudar a pretensão salarial não quer cair em "Etapa 1 de 7"."""
+    """Navegação lateral, não etapas. Depois de configurado, o wizard é
+    obstáculo: quem abre para mudar a pretensão salarial não quer cair em
+    "Etapa 1 de 7"."""
     _ui.cabecalho("Configurações",
                   "Defina seu perfil, preferências e integrações.")
 
-    # `st.segmented_control`, não `st.tabs`: abas renderizam TODAS as seções ao
-    # mesmo tempo, e as sete funções de etapa desenham botões "Voltar" com o
-    # mesmo rótulo — chave duplicada, página quebrada. Renderizar só a escolhida
-    # também evita seis consultas ao banco e à API a cada carregamento.
+    # Lista vertical à esquerda, não `st.tabs`: abas renderizam TODAS as seções
+    # ao mesmo tempo, e as sete funções de etapa desenham botões "Voltar" com o
+    # mesmo rótulo — chave duplicada, página quebrada. Renderizar só a
+    # escolhida também evita seis consultas ao banco e à API a cada
+    # carregamento. E vertical porque nove rótulos numa linha não cabem.
     rotulos = [s[0] for s in SECOES]
-    escolhido = st.segmented_control("Seção", rotulos, default=rotulos[0],
-                                     label_visibility="collapsed")
-    _, passo, descricao = next(s for s in SECOES if s[0] == (escolhido or rotulos[0]))
+    nav, conteudo = st.columns([1.15, 3.6], gap="large")
+    with nav, st.container(key="nav-config"):
+        escolhido = st.radio("Seção", rotulos, label_visibility="collapsed",
+                             key="secao_config")
+    _, passo, descricao = next(s for s in SECOES if s[0] == escolhido)
 
-    st.caption(descricao)
-    st.divider()
-    # As funções de etapa desenham os botões "Voltar/Próximo" do assistente.
-    # Aqui não fazem sentido, mas removê-los exigiria mexer nas sete — e esta é
-    # a página que guarda credencial e currículo. Uma legenda custa menos que o
-    # risco de quebrar a configuração inicial de quem ainda não configurou.
-    STEP_HANDLERS[passo]()
-    st.caption("Cada seção salva sozinha; os botões Voltar/Próximo pertencem "
-               "ao assistente inicial e podem ser ignorados.")
+    with conteudo:
+        # As etapas do assistente já se intitulam; só as seções que existem
+        # apenas aqui precisam de título.
+        if passo > 8:
+            st.markdown(f'<div class="destaque-titulo">{escolhido}</div>'
+                        f'<div class="meta-linha">{descricao}</div>',
+                        unsafe_allow_html=True)
+            st.markdown("")
+        # As funções de etapa desenham os botões "Voltar/Próximo" do
+        # assistente. Aqui não fazem sentido, mas removê-los exigiria mexer nas
+        # sete — e esta é a página que guarda credencial e currículo. Uma
+        # legenda custa menos que o risco de quebrar a configuração inicial.
+        STEP_HANDLERS[passo]()
+        if passo <= 7:
+            st.caption("Cada seção salva sozinha; os botões Voltar/Próximo "
+                       "pertencem ao assistente inicial e podem ser ignorados.")
 
-    st.divider()
-    if st.button("Refazer a configuração inicial", icon=":material/restart_alt:"):
-        st.session_state.setup_step = 1
-        st.session_state["forcar_assistente"] = True
-        st.rerun()
+    with nav:
+        st.markdown("")
+        if st.button("Refazer configuração", icon=":material/restart_alt:",
+                     type="tertiary"):
+            st.session_state.setup_step = 1
+            st.session_state["forcar_assistente"] = True
+            st.rerun()
 
 
 if config.is_setup_complete() and not st.session_state.get("forcar_assistente"):

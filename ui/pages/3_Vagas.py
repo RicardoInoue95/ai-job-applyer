@@ -37,8 +37,7 @@ except Exception as exc:
     st.stop()
 
 
-_ui.cabecalho("Vagas",
-              "Explore oportunidades reunidas de diferentes plataformas.")
+_ui.cabecalho("Vagas", "Encontre oportunidades que combinam com você.")
 
 
 # ── Filtros ───────────────────────────────────────────────────────────────────
@@ -57,30 +56,41 @@ def _rotulo_status(codigo: str) -> str:
     return vocab.de_vaga(codigo).rotulo
 
 
-with st.container(border=False):
-    c1, c2, c3, c4 = st.columns([1.6, 1.3, 1.2, 1])
-    with c1:
-        busca = st.text_input("Buscar", placeholder="Título ou empresa",
-                              label_visibility="collapsed")
-    with c2:
-        status_filter = st.selectbox("Status", _OPCOES, index=0,
-                                     format_func=_rotulo_status,
-                                     label_visibility="collapsed")
-    with c3:
-        plataformas = st.multiselect(
-            "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire", "lever"],
-            placeholder="Plataforma", label_visibility="collapsed")
-    with c4:
-        aderencia_min = st.slider("Aderência mínima", 0, 100, 0, step=5,
-                                  format="%d%%")
+# Aderência como faixa, não como slider: "80%+" se lê e se lembra; um slider
+# em 5 em 5 pede ajuste fino que ninguém quer fazer em lista.
+_FAIXAS = {0: "Aderência", 65: "65%+", 75: "75%+", 80: "80%+", 85: "85%+"}
+_SENIORIDADES = ["Júnior", "Pleno", "Sênior", "Especialista", "Líder"]
+
+c1, c2, c3, c4, c5 = st.columns([1.7, 1.3, 1.05, 1.15, 1.15])
+with c1:
+    busca = st.text_input("Buscar", placeholder="Título ou empresa",
+                          label_visibility="collapsed")
+with c2:
+    status_filter = st.selectbox("Status", _OPCOES, index=0,
+                                 format_func=_rotulo_status,
+                                 label_visibility="collapsed")
+with c3:
+    aderencia_min = st.selectbox("Aderência", list(_FAIXAS), index=0,
+                                 format_func=_FAIXAS.__getitem__,
+                                 label_visibility="collapsed")
+with c4:
+    modalidades = st.multiselect("Modalidade", ["remoto", "híbrido", "presencial"],
+                                 placeholder="Modalidade",
+                                 format_func=str.capitalize,
+                                 label_visibility="collapsed")
+with c5:
+    plataformas = st.multiselect(
+        "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire", "lever"],
+        placeholder="Plataforma", format_func=str.title,
+        label_visibility="collapsed")
 
 with st.expander("Mais filtros"):
-    m1, m2 = st.columns(2)
+    m1, m2, m3 = st.columns([1, 1, 1.4], vertical_alignment="bottom")
     with m1:
-        modalidades = st.multiselect("Modalidade",
-                                     ["remoto", "híbrido", "presencial"],
-                                     placeholder="Todas")
+        localizacao_busca = st.text_input("Localização", placeholder="Cidade")
     with m2:
+        senioridades = st.multiselect("Senioridade", _SENIORIDADES, placeholder="Todas")
+    with m3:
         mostrar_filtradas = st.checkbox(
             "Incluir vagas descartadas pelos filtros", value=False,
             help="Vagas que não passaram nos filtros 4A/4B. Úteis para conferir "
@@ -109,6 +119,17 @@ def _get_vagas(status: str, busca: str) -> list:
             q = q.filter(Vaga.modalidade.in_(modalidades))
         if aderencia_min:
             q = q.filter(Vaga.score >= aderencia_min)
+        if localizacao_busca:
+            q = q.filter(func.lower(Vaga.localizacao).like(f"%{localizacao_busca.lower()}%"))
+        if senioridades:
+            # Senioridade mora em normalizado_json; filtrar no banco exigiria
+            # operador JSON por dialeto. Cem linhas em Python é barato.
+            aceitas = {x.lower() for x in senioridades}
+            vagas = (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
+                     .limit(400).all())
+            return [v for v in vagas
+                    if isinstance(v.normalizado_json, dict)
+                    and (v.normalizado_json.get("senioridade") or "").lower() in aceitas][:100]
         return (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
                 .limit(100).all())
 
@@ -158,6 +179,7 @@ if not vagas:
 st.caption(f"{len(vagas)} vaga{'s' if len(vagas) != 1 else ''} · "
            "ordenadas por aderência (máx. 100)")
 
+lista = st.container(key="lista")
 for vaga in vagas:
     normalizado = vaga.normalizado_json if isinstance(vaga.normalizado_json, dict) else {}
     senioridade = normalizado.get("senioridade") or ""
@@ -168,12 +190,12 @@ for vaga in vagas:
     # Nível 1: onde, como, que nível. Data de coleta e plataforma são nível 3 e
     # ficam em Detalhes — na lista, só confundiam com o que decide.
     meta = _ui.linha_meta(
-        f"<span>{vaga.localizacao}</span>" if vaga.localizacao else "",
+        f"<span>{_ui.local_curto(vaga.localizacao)}</span>" if vaga.localizacao else "",
         f"<span>{(vaga.modalidade or '').capitalize()}</span>" if vaga.modalidade else "",
         f"<span>{senioridade}</span>" if senioridade else "",
     )
 
-    with st.container(border=True):
+    with lista, st.container(border=True):
         esq, dir_ = st.columns([3.2, 1], vertical_alignment="top")
         with esq:
             st.markdown(
@@ -184,11 +206,17 @@ for vaga in vagas:
                 unsafe_allow_html=True,
             )
         with dir_:
+            # Status não vai na lista: em "aguardando você" é sempre o mesmo,
+            # e nos outros filtros você acabou de escolhê-lo. Fica um sinal
+            # pequeno só quando a vaga tem dossiê pronto, porque isso muda o
+            # que fazer com ela — revisar, não aprovar.
+            preparada = ('<span class="meta-linha" style="color:var(--ok)">● Preparada</span>'
+                         if vaga.status == "pronta_envio_manual" else "")
             st.markdown(
                 '<div style="display:flex;flex-direction:column;'
-                'align-items:flex-end;gap:.45rem">'
-                f'{_ui.badge_status(vaga.status)}'
+                'align-items:flex-end;gap:.35rem">'
                 f'{_ui.conclusao(aderencia.analisar(vaga).como_dict(), so_titulo=True)}'
+                f'{preparada}'
                 '</div>',
                 unsafe_allow_html=True,
             )

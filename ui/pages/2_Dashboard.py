@@ -85,43 +85,47 @@ quantas, proxima = _fila()
 
 # ── 1. O que precisa de você ──────────────────────────────────────────────────
 
-st.markdown(f"## {_saudacao()}")
+st.markdown(f'<div class="pg-titulo">{_saudacao()}</div>', unsafe_allow_html=True)
 if quantas:
     st.markdown(
-        f"**{quantas} vaga{'s' if quantas != 1 else ''} "
-        f"precisa{'m' if quantas != 1 else ''} da sua atenção.** "
-        "A IA já preparou currículo, carta e respostas."
+        f'<p class="lede">Você tem <b>{quantas} vaga{"s" if quantas != 1 else ""}</b> '
+        f'para revisar.<br>Currículos, cartas e respostas já estão preparados.</p>',
+        unsafe_allow_html=True,
     )
     with st.container(key="cta"):
         st.page_link("pages/5_Aplicar.py", label="Revisar vagas",
-                     icon=":material/rate_review:")
+                     icon=":material/arrow_forward:")
 else:
-    st.markdown("**Nada precisa de você agora.** "
-                "O coletor segue rodando; volte mais tarde.")
+    st.markdown('<p class="lede">Nada precisa de você agora.<br>'
+                'O coletor segue rodando; volte mais tarde.</p>',
+                unsafe_allow_html=True)
 
 # ── 2. Próximo passo ──────────────────────────────────────────────────────────
 # Uma só, e não uma lista: o CTA de cima leva à fila; este deixa começar pela
 # recomendada sem passar por ela.
 
+# É a vaga que o produto recomenda processar agora: merece ser a única coisa
+# com borda na tela (contrato: cartão só para o protagonista).
 if proxima:
     _ui.secao("Próximo passo")
     a = proxima.get("aderencia") or {}
-    st.markdown(f"**{proxima['empresa_exibicao']}**")
-    st.markdown(f"### {_ui.titulo_limpo(proxima['titulo'])}")
-    meta = " · ".join(p for p in (proxima["modalidade"], proxima["localizacao"]) if p)
-    if meta:
-        st.caption(meta)
-    if a:
-        st.markdown(f"**{a['titulo']}** — {a['porque']}")
-        if a.get("atencao"):
-            st.markdown(f"⚠ {a['atencao']}")
-    prontos = " ".join(
-        f"{nome} ✓" for nome, ok in (("Currículo", proxima["tem_curriculo"]),
+    meta = " · ".join(p for p in (_ui.local_curto(proxima["localizacao"]),
+                                  (proxima["modalidade"] or "").capitalize()) if p)
+    prontos = " · ".join(
+        f"✓ {nome}" for nome, ok in (("Currículo", proxima["tem_curriculo"]),
                                      ("Carta", proxima["tem_carta"])) if ok)
-    if prontos:
-        st.caption(prontos)
-    st.page_link("pages/5_Aplicar.py", label="Revisar esta candidatura",
-                 icon=":material/arrow_forward:")
+    with st.container(border=True, key="proximo"):
+        st.markdown(
+            f'<div class="vaga-empresa">{proxima["empresa_exibicao"]}</div>'
+            f'<div class="destaque-titulo">{_ui.titulo_limpo(proxima["titulo"])}</div>'
+            + (f'<div class="meta-linha">{meta}</div>' if meta else "")
+            + (f'<div style="margin-top:var(--e4)">{_ui.conclusao(a)}</div>' if a else "")
+            + (f'<div class="meta-linha" style="margin-top:var(--e3);color:var(--ok)">'
+               f'{prontos}</div>' if prontos else ""),
+            unsafe_allow_html=True,
+        )
+        st.page_link("pages/5_Aplicar.py", label="Revisar candidatura",
+                     icon=":material/arrow_forward:")
 
 # ── 3. Candidaturas ───────────────────────────────────────────────────────────
 
@@ -154,12 +158,17 @@ coleta = (f"Última coleta {quando.strftime('%d/%m às %H:%M')}" if quando
 # Mesmo ponto da barra lateral (token, não emoji): âmbar quando ativa, porque
 # com ela ligada coisas são enviadas em seu nome — é estado que pede atenção.
 cor = "var(--aviso)" if ativa else "var(--ok)"
-texto = (f"<b>Ativa.</b> A IA encontra, prepara e — acima de "
-         f"{ea.threshold_auto(config)}% em plataformas com automação — envia em "
-         f"seu nome. {coleta}." if ativa else
-         f"<b>Modo sombra.</b> A IA encontra e prepara; nada é enviado sem você. "
-         f"{coleta}.")
-st.markdown(f'<span class="ponto" style="background:{cor};display:inline-block;'
-            f'margin-right:.4rem"></span>{texto}', unsafe_allow_html=True)
+titulo = "Ativa" if ativa else "Modo sombra"
+detalhe = (f"A IA encontra e prepara suas candidaturas. Vagas acima de "
+           f"{ea.threshold_auto(config)}% podem ser enviadas automaticamente."
+           if ativa else
+           "A IA encontra e prepara suas candidaturas. Nada é enviado sem você.")
+st.markdown(
+    f'<div><span class="ponto" style="background:{cor};display:inline-block;'
+    f'margin-right:.4rem"></span><b>{titulo}</b></div>'
+    f'<div class="meta-linha" style="margin-top:var(--e2)">{detalhe}</div>'
+    f'<div class="meta-linha">{coleta}</div>',
+    unsafe_allow_html=True,
+)
 st.page_link("pages/1_Setup.py", label="Configurar automação",
              icon=":material/settings:")
