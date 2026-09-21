@@ -464,16 +464,23 @@ def step_3():
     # ── Formulário de preferências ────────────────────────────────────────────
     saved = config.get("coleta") or {}
 
-    # Chips, não textarea "um por linha": lista curta se lê de relance e se
-    # edita sem contar linhas. `accept_new_options` deixa digitar um valor que
-    # não está na lista — a lista É o que você já gravou.
-    def _chips(rotulo, valores, chave, ajuda=None, placeholder="Digite e Enter"):
+    # Resumo + "Editar", não a lista inteira em chips: 103 cidades em tags
+    # transformam a tela num gerenciador de etiquetas. Lê-se os primeiros e
+    # "+ 96 outras"; quem quer mexer abre o editor. Dentro dele, chips com
+    # `accept_new_options` — digitar um valor novo e Enter o acrescenta.
+    def _chips(rotulo, valores, chave, ajuda=None, mostrar=5):
         valores = list(valores)
-        return st.multiselect(rotulo, options=valores, default=valores, key=chave,
-                              accept_new_options=True, placeholder=placeholder,
-                              help=ajuda)
+        resto = len(valores) - mostrar
+        resumo = ", ".join(valores[:mostrar]) + (f" e mais {resto}" if resto > 0 else "")
+        st.markdown(f'<div class="rotulo-campo">{rotulo}</div>'
+                    f'<div class="resumo-campo">{resumo or "—"}</div>',
+                    unsafe_allow_html=True)
+        with st.expander(f"Editar ({len(valores)})"):
+            return st.multiselect(rotulo, options=valores, default=valores, key=chave,
+                                  accept_new_options=True, placeholder="Digite e Enter",
+                                  help=ajuda, label_visibility="collapsed")
 
-    with st.form("prefs_form"):
+    with st.container(key="prefs"), st.form("prefs_form"):
         cargos = _chips("Cargos de interesse",
                         saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer",
                                                   "BI Analyst"]), "chips_cargos")
@@ -495,11 +502,20 @@ def step_3():
                 ),
             )
 
-        salario = st.text_input(
-            "Pretensão salarial",
-            value=saved.get("salario_esperado", ""),
-            placeholder="ex: R$ 8.000 - R$ 12.000",
-        )
+        # Guardado como texto (é o que o prompt de candidatura e o Greenhouse
+        # leem); na tela, número com prefixo — "8000" solto não se lê como
+        # dinheiro.
+        salario_salvo = "".join(ch for ch in str(saved.get("salario_esperado", ""))
+                                if ch.isdigit())
+        c_sal, _ = st.columns([1, 2])
+        with c_sal:
+            salario_num = st.number_input(
+                "Pretensão salarial mínima (R$ por mês)",
+                min_value=0, step=500, value=int(salario_salvo or 0), format="%d",
+            )
+            if salario_num:
+                st.caption(f"R$ {salario_num:,.0f} / mês".replace(",", "."))
+        salario = str(salario_num) if salario_num else ""
 
         # O que muda raramente fica atrás de um clique; o formulário abre no
         # que muda — cargo, cidade, pretensão.
@@ -1268,13 +1284,19 @@ def _modo_ajuste() -> None:
             st.caption("Cada seção salva sozinha; os botões Voltar/Próximo "
                        "pertencem ao assistente inicial e podem ser ignorados.")
 
-    with nav:
-        st.markdown("")
-        if st.button("Refazer configuração", icon=":material/restart_alt:",
-                     type="tertiary"):
-            st.session_state.setup_step = 1
-            st.session_state["forcar_assistente"] = True
-            st.rerun()
+    # Refazer do zero é a única ação destrutiva da página: fica no rodapé do
+    # conteúdo, discreta, e pede confirmação — não ao lado da navegação.
+    with conteudo:
+        st.divider()
+        with st.expander("Configuração inicial"):
+            st.caption("Refazer o assistente do começo. O que já está salvo "
+                       "continua salvo até você substituir.")
+            confirmo = st.checkbox("Entendo, quero refazer a configuração inicial")
+            if st.button("Refazer configuração", icon=":material/restart_alt:",
+                         disabled=not confirmo):
+                st.session_state.setup_step = 1
+                st.session_state["forcar_assistente"] = True
+                st.rerun()
 
 
 if config.is_setup_complete() and not st.session_state.get("forcar_assistente"):

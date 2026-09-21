@@ -37,7 +37,7 @@ export function Inbox({ vagas, aoDecidir }: {
   const anterior = useCallback(() => setPos((p) => Math.max(0, p - 1)), []);
   const proxima = useCallback(() => setPos((p) => Math.min(total - 1, p + 1)), [total]);
 
-  // "Abrir e candidatar": abre o link numa aba nova E registra `aberta`. A
+  // "Abrir candidatura": abre o link numa aba nova E registra `aberta`. A
   // vaga não sai da fila — o que se sabe é que o link foi aberto. Sair só
   // com "enviei" ou "não é para mim".
   const abrir = useCallback(async () => {
@@ -135,7 +135,7 @@ export function Inbox({ vagas, aoDecidir }: {
 
       <div className="acoes">
         <button className="primario grande" onClick={abrir} disabled={ocupado}>
-          Abrir e candidatar
+          Abrir candidatura
         </button>
         <div className="linha">
           <button onClick={() => decidir("enviada")} disabled={ocupado}>Já me candidatei</button>
@@ -150,8 +150,17 @@ export function Inbox({ vagas, aoDecidir }: {
   );
 }
 
-/** Nível 2, atrás de um clique: barras por eixo e tecnologias. Carrega só
- * quando aberto — é uma chamada por vaga, e ninguém abre em todas. */
+/** Nível 2, atrás de um clique: cada eixo como palavra e número, e as
+ * tecnologias. Sem barras — cinco barras quase cheias parecem painel de
+ * métricas; a palavra se lê, o número confere (mesma régua de `ui/_ui.py`).
+ * Carrega só quando aberto — é uma chamada por vaga, e ninguém abre em todas. */
+function palavraDoEixo(pct: number): string {
+  if (pct >= 90) return "Excelente";
+  if (pct >= 70) return "Forte";
+  if (pct >= 40) return "Parcial";
+  return "Fraca";
+}
+
 function Evidencia({ vagaId }: { vagaId: number }) {
   const [aberto, setAberto] = useState(false);
   const [dossie, setDossie] = useState<Dossie | null>(null);
@@ -173,20 +182,23 @@ function Evidencia({ vagaId }: { vagaId: number }) {
       {aberto && !dossie && <div className="meta">Carregando…</div>}
       {aberto && dossie && (
         <>
-          {dossie.aderencia.eixos.map((e) => (
-            <div className="eixo" key={e.nome}>
-              <span>{e.nome}</span>
-              <div className="barra"><i style={{ width: `${Math.round(e.fracao * 100)}%` }} /></div>
-              <span className="num">{Math.round(e.fracao * 100)}%</span>
-            </div>
-          ))}
+          {dossie.aderencia.eixos.map((e) => {
+            const pct = Math.round(e.fracao * 100);
+            return (
+              <div className="eixo" key={e.nome}>
+                <span>{e.nome}</span>
+                <span className="palavra">{palavraDoEixo(pct)}</span>
+                <span className="num">{pct}%</span>
+              </div>
+            );
+          })}
           <div className="chips">
             {dossie.aderencia.cobertas.slice(0, 10).map((t) => (
               <span className="selo neutro" key={t}>✓ {t.replace(" (equivalente)", "")}</span>
             ))}
           </div>
           {dossie.aderencia.faltam.length > 0 && (
-            <div className="meta">Não cita: {dossie.aderencia.faltam.join(", ")}</div>
+            <div className="meta atencao">⚠ Não cita: {dossie.aderencia.faltam.join(", ")}</div>
           )}
           {dossie.perguntas.length > 0 && (
             <div className="meta" style={{ marginTop: 6 }}>

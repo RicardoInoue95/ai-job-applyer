@@ -93,7 +93,10 @@ if quantas:
         unsafe_allow_html=True,
     )
     with st.container(key="cta"):
-        st.page_link("pages/5_Aplicar.py", label="Revisar vagas",
+        # O número vai no botão: "Revisar 42 vagas" é a ação, sem que o olho
+        # precise voltar à frase para saber quanto é.
+        st.page_link("pages/5_Aplicar.py",
+                     label=f"Revisar {quantas} vaga{'s' if quantas != 1 else ''}",
                      icon=":material/arrow_forward:")
 else:
     st.markdown('<p class="lede">Nada precisa de você agora.<br>'
@@ -119,8 +122,8 @@ if proxima:
             f'<div class="vaga-empresa">{proxima["empresa_exibicao"]}</div>'
             f'<div class="destaque-titulo">{_ui.titulo_limpo(proxima["titulo"])}</div>'
             + (f'<div class="meta-linha">{meta}</div>' if meta else "")
-            + (f'<div style="margin-top:var(--e4)">{_ui.conclusao(a)}</div>' if a else "")
-            + (f'<div class="meta-linha" style="margin-top:var(--e3);color:var(--ok)">'
+            + (f'<div style="margin-top:var(--e3)">{_ui.conclusao(a)}</div>' if a else "")
+            + (f'<div class="meta-linha" style="margin-top:var(--e2);color:var(--ok)">'
                f'{prontos}</div>' if prontos else ""),
             unsafe_allow_html=True,
         )
@@ -139,12 +142,17 @@ if funil.entrevistas:
     resumo.append(f"{funil.entrevistas} entrevista{'s' if funil.entrevistas != 1 else ''}")
 if funil.com_resposta and funil.com_resposta != funil.entrevistas:
     resumo.append(f"{funil.com_resposta} com resposta")
-if funil.aguardando != funil.enviadas:
-    resumo.append(f"{funil.aguardando} aguardando retorno")
 st.markdown(" · ".join(resumo))
+# O sistema não sabe se está "aguardando": sabe que ninguém marcou resposta.
 if funil.enviadas and funil.com_resposta == 0 and funil.recusas == 0:
-    st.caption("Marque em Candidaturas o que cada empresa respondeu — é daí "
-               "que sai 'de quantas fui chamado'.")
+    st.markdown('<div class="meta-linha" style="color:var(--txt-2)">'
+                'Ainda não identificamos respostas das empresas.<br>'
+                'Você pode atualizar o status de cada uma em Candidaturas.</div>',
+                unsafe_allow_html=True)
+elif funil.aguardando:
+    st.markdown(f'<div class="meta-linha" style="color:var(--txt-2)">'
+                f'{funil.aguardando} sem resposta identificada.</div>',
+                unsafe_allow_html=True)
 st.page_link("pages/4_Candidaturas.py", label="Ver candidaturas",
              icon=":material/send:")
 

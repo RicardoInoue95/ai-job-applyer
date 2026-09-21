@@ -46,7 +46,7 @@ def test_decisao_desconhecida_e_recusada_antes_do_banco():
 
 
 def test_abrir_registra_sem_tirar_da_fila():
-    """"Abrir e candidatar" grava que o link foi aberto — não que a candidatura
+    """"Abrir candidatura" grava que o link foi aberto — não que a candidatura
     saiu. A vaga continua na fila até "enviei" ou "não é para mim"."""
     assert fila.DECISOES["abrir"] == "aberta"
     assert "aberta" in fila.NA_FILA
@@ -95,3 +95,12 @@ def test_precisam_de_voce_e_o_corte_de_confianca(monkeypatch):
 ])
 def test_titulo_exibicao_tira_o_codigo_do_ats(bruto, limpo):
     assert fila.titulo_exibicao(bruto) == limpo
+
+
+def test_local_exibicao_corta_so_o_formato_de_tres_campos():
+    assert fila.local_exibicao("São Paulo, São Paulo, Brasil") == "São Paulo"
+    assert fila.local_exibicao("Taboão da Serra, SP, Brasil") == "Taboão da Serra"
+    # Texto livre não tem campo de estado para confundir: fica inteiro.
+    assert fila.local_exibicao("Brazil (São Paulo - Hybrid)") == "Brazil (São Paulo - Hybrid)"
+    assert fila.local_exibicao("Sao Paulo") == "Sao Paulo"
+    assert fila.local_exibicao(None) == ""

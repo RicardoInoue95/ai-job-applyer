@@ -69,10 +69,11 @@ def _revisar_com_contador() -> "st.Page":
 # A jornada, não o sistema: Início → Vagas → Revisar → Candidaturas. O resto
 # existe, mas não na barra. Sem configuração completa a única página é o wizard.
 if configurado:
-    paginas = {
-        "": [INICIO, VAGAS, _revisar_com_contador(), CANDIDATURAS],
-        "Mais": [CONFIGURACOES, DOCUMENTOS],
-    }
+    # Sem grupo "Mais": com um item só, o rótulo do grupo é ruído. `_ui`
+    # desenha um traço antes de Configurações. Quando houver três secundários,
+    # o grupo volta a fazer sentido.
+    paginas = [INICIO, VAGAS, _revisar_com_contador(), CANDIDATURAS,
+               CONFIGURACOES, DOCUMENTOS]
 else:
     paginas = [CONFIGURACOES]
 

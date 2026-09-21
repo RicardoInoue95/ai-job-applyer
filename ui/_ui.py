@@ -127,14 +127,25 @@ CSS = """
 
   /* Na lista de vagas, "Detalhes" é um link discreto, não uma segunda caixa
      dentro do cartão: cem cartões com duas bordas cada não se escaneiam. */
+  /* No Streamlit 1.58 o container com borda é o próprio stVerticalBlock
+     (padding 15px); o cartão da lista usa 12/16 e "Detalhes" cola no texto. */
+  .st-key-lista .stVerticalBlock:has(> [data-testid="stLayoutWrapper"] > .stHorizontalBlock) {
+    padding: var(--e3) var(--e4); gap: 0; }
+  .st-key-lista [data-testid="stExpander"] { margin-top: var(--e2); }
   .st-key-lista [data-testid="stExpander"] details { border: 0; background: transparent; }
-  .st-key-lista [data-testid="stExpander"] summary { padding: var(--e1) 0; }
+  .st-key-lista [data-testid="stExpander"] summary { padding: 0; min-height: 0; line-height: 1.3; }
   .st-key-lista [data-testid="stExpander"] summary p { font-size: var(--txt-apoio); color: var(--txt-3); }
   .st-key-lista [data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding-left: 0; padding-right: 0; }
 
   /* "Mais" tem só Configurações; Documentos fica roteável (Configurações →
      Documentos e links do produto) sem gastar linha na barra. */
   [data-testid="stSidebarNav"] a[href$="/documentos"] { display: none; }
+  /* "Mais" com um item só não é grupo; um traço antes de Configurações basta. */
+  [data-testid="stSidebarNav"] a[href$="/configuracoes"] {
+    margin-top: var(--e3); position: relative; }
+  [data-testid="stSidebarNav"] a[href$="/configuracoes"]::before {
+    content: ""; position: absolute; left: 0; right: 0; top: calc(-1 * var(--e2));
+    border-top: 1px solid var(--borda); }
 
   /* Navegação interna de Configurações: um rádio que parece lista de links. */
   .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"] {
@@ -149,7 +160,26 @@ CSS = """
 
   /* Primeira seção de uma coluna lateral alinha com o topo do cartão. */
   .st-key-lado .sec:first-child, .st-key-lado > div > div:first-child .sec { margin-top: 0; }
-  .st-key-proximo [data-testid="stPageLink"] { margin-top: var(--e3); }
+  .st-key-proximo [data-testid="stPageLink"] { margin-top: var(--e2); }
+  .st-key-proximo.stVerticalBlock { padding: var(--e4) var(--e5); gap: var(--e1); }
+  .st-key-proximo .destaque-titulo { margin: 0; }
+
+  /* Em Preferências, "Editar", "Filtros avançados" e "Empresas" são links que
+     abrem, não caixas dentro da caixa do formulário. */
+  .st-key-prefs [data-testid="stExpander"] details { border: 0; background: transparent; }
+  .st-key-prefs [data-testid="stExpander"] summary { padding: var(--e1) 0; }
+  .st-key-prefs [data-testid="stExpander"] summary p { font-size: var(--txt-apoio); color: var(--acao); }
+  .st-key-prefs [data-testid="stExpander"] [data-testid="stExpanderDetails"] { padding-left: 0; padding-right: 0; }
+
+  /* Candidaturas enviadas: uma linha por vaga, com traço entre elas. */
+  .st-key-envios .stHorizontalBlock { padding: var(--e3) 0; border-bottom: 1px solid var(--borda); }
+  .st-key-envios.stVerticalBlock { gap: 0; }
+
+  /* Campo em modo resumo (Configurações): rótulo como o do Streamlit, valor
+     em corpo, editor atrás de um clique. */
+  .rotulo-campo { font-size: var(--txt-apoio); color: var(--txt-1); font-weight: 400;
+                  margin-bottom: var(--e1); }
+  .resumo-campo { font-size: var(--txt); color: var(--txt-2); line-height: 1.45; }
 
   /* Parágrafo de abertura do Início: maior que corpo, menor que título. */
   .lede { font-size: 1.1rem; line-height: 1.5; color: var(--txt-2);
@@ -202,6 +232,7 @@ CSS = """
   .vaga-titulo { font-size: 1.05rem; font-weight: 600; color: var(--txt-1);
                  line-height: 1.35; }
   .vaga-empresa { font-size: var(--txt-apoio); color: var(--txt-2); }
+  .vaga-porque { font-size: var(--txt-apoio); color: var(--txt-2); margin: var(--e2) 0; }
   .vaga-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;
                margin-top: .45rem; font-size: var(--txt-meta);
                color: var(--txt-3); }
@@ -231,9 +262,8 @@ CSS = """
      fica para a ação; barra de evidência não é ação. */
   .eixo { display: grid; grid-template-columns: 110px 1fr 44px; gap: .6rem;
           align-items: center; font-size: var(--txt-apoio); color: var(--txt-2);
-          margin: .25rem 0; }
-  .eixo .barra { height: 6px; border-radius: 3px; background: var(--borda); overflow: hidden; }
-  .eixo .barra i { display: block; height: 100%; background: var(--borda-forte); }
+          padding: var(--e1) 0; border-bottom: 1px solid var(--borda); }
+  .eixo .palavra { color: var(--txt-1); font-weight: 550; }
   .eixo .num { text-align: right; color: var(--txt-3); }
 
   /* ── Estado vazio ─────────────────────────────────────────────────────── */
@@ -263,17 +293,22 @@ CSS = """
      o texto escuro do tema e fica ilegível sobre o índigo. */
   .stButton button[kind="primary"],
   .stLinkButton a[data-testid="stBaseLinkButton-primary"],
-  .stDownloadButton button[kind="primary"] {
+  .stDownloadButton button[kind="primary"],
+  .stFormSubmitButton button[kind="primaryFormSubmit"] {
     background: var(--acao) !important; border-color: var(--acao) !important;
     color: #FFFFFF !important;
   }
+  /* O submit de formulário tem kind próprio ("primaryFormSubmit"); sem esta
+     linha "Salvar preferências" saía com texto cinza sobre índigo. */
   .stButton button[kind="primary"] p,
   .stLinkButton a[data-testid="stBaseLinkButton-primary"] p,
   .stLinkButton a[data-testid="stBaseLinkButton-primary"] span,
-  .stDownloadButton button[kind="primary"] p {
+  .stDownloadButton button[kind="primary"] p,
+  .stFormSubmitButton button[kind="primaryFormSubmit"] p {
     color: #FFFFFF !important;
   }
   .stButton button[kind="primary"]:hover,
+  .stFormSubmitButton button[kind="primaryFormSubmit"]:hover,
   .stLinkButton a[data-testid="stBaseLinkButton-primary"]:hover {
     background: var(--acao-hover) !important;
     border-color: var(--acao-hover) !important;
@@ -365,10 +400,10 @@ def cabecalho(titulo: str, descricao: str = "", acao=None) -> None:
 
 
 def local_curto(localizacao: str) -> str:
-    """"São Paulo, São Paulo, Brasil" → "São Paulo". Texto livre fica como está:
-    só o formato de três campos tem estado e país para cortar."""
-    partes = [p.strip() for p in (localizacao or "").split(",")]
-    return partes[0] if len(partes) == 3 and partes[0] else (localizacao or "")
+    """Delegado a `fila.local_exibicao`: webapp e painel encurtam igual."""
+    from jobapplier import fila
+
+    return fila.local_exibicao(localizacao)
 
 
 def secao(rotulo: str) -> None:
@@ -458,8 +493,23 @@ def conclusao(a: dict | None, com_atencao: bool = True, so_titulo: bool = False)
     return "".join(partes)
 
 
+def _palavra_do_eixo(pct: int) -> str:
+    if pct >= 90:
+        return "Excelente"
+    if pct >= 70:
+        return "Forte"
+    if pct >= 40:
+        return "Parcial"
+    return "Fraca"
+
+
 def evidencia(a: dict | None) -> None:
-    """Nível 2: nota por eixo em barras, tecnologias cobertas e ausentes."""
+    """Nível 2: cada eixo como palavra e número, tecnologias cobertas e ausentes.
+
+    Sem barras: cinco barras quase cheias lado a lado parecem painel de
+    métricas, e a decisão não está na barra — está em "Tecnologias: Forte,
+    89%" e na lista do que falta. A palavra se lê; o número confere.
+    """
     if not a:
         return
     linhas = []
@@ -470,7 +520,7 @@ def evidencia(a: dict | None) -> None:
         pct = round(fracao * 100)
         linhas.append(
             f'<div class="eixo"><span>{e["nome"]}</span>'
-            f'<div class="barra"><i style="width:{min(pct, 100)}%"></i></div>'
+            f'<span class="palavra">{_palavra_do_eixo(pct)}</span>'
             f'<span class="num">{pct}%</span></div>')
     if linhas:
         st.markdown("".join(linhas), unsafe_allow_html=True)
@@ -482,7 +532,9 @@ def evidencia(a: dict | None) -> None:
     # O ponto de atenção (nível 1) já está no cartão; aqui só o que ele não
     # disse — a lista completa do que a vaga pede e o currículo não cita.
     if faltam:
-        st.caption("Não cita: " + ", ".join(faltam))
+        st.markdown(
+            '<div class="meta-linha" style="color:var(--aviso);margin-top:var(--e2)">'
+            f'⚠ Não cita: {", ".join(faltam)}</div>', unsafe_allow_html=True)
 
 
 def vazio(titulo: str, detalhe: str = "") -> None:

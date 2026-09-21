@@ -307,7 +307,10 @@ with coluna_vaga:
     # depois" não é ação equivalente às outras — é adiar a decisão — e por
     # isso não ganha botão do mesmo peso.
     st.write("")
-    st.link_button("Abrir e candidatar", vaga["link"] or "#",
+    # "Abrir candidatura", não "Abrir e candidatar": o botão abre o site e
+    # registra que você abriu; quem envia é você, lá. O nome não pode prometer
+    # o que o sistema não faz (Finalidade: honestidade sobre o limite).
+    st.link_button("Abrir candidatura", vaga["link"] or "#",
                    icon=":material/open_in_new:", type="primary",
                    use_container_width=True)
     b1, b2 = st.columns(2)
@@ -391,11 +394,18 @@ with coluna_apoio, st.container(key="lado"):
             unsafe_allow_html=True,
         )
 
-    st.write("")
+    # Uma frase de conclusão do checklist, e as ações como links: a decisão
+    # mora na coluna da esquerda; aqui é evidência de que está pronto.
+    tudo_pronto = all(ok for _, ok, _ in linhas_check if ok is not None) and pdf
+    st.markdown(
+        '<div class="meta-linha" style="margin:var(--e3) 0 var(--e2);color:var(--txt-2)">'
+        + ("Tudo preparado para esta vaga." if tudo_pronto else
+           "Falta algo — veja acima o que ainda não está pronto.")
+        + "</div>", unsafe_allow_html=True)
     if pdf:
         st.download_button("Baixar currículo", pdf.read_bytes(),
                            file_name=pdf.name, mime="application/pdf",
-                           icon=":material/download:", use_container_width=True)
+                           icon=":material/download:", type="tertiary")
 
     if f["situacao"] == "ok" and f["itens"]:
         with st.expander(f"Perguntas do formulário ({f['total']})"):
@@ -429,7 +439,7 @@ with coluna_apoio, st.container(key="lado"):
         if len(trecho) > 200:
             trecho = trecho[:200].rstrip() + "…"
         st.caption(f"“{trecho}”")
-        with st.expander("Ler ou editar a carta completa"):
+        with st.expander("Ler carta completa"):
             st.text_area("carta", carta, height=320, label_visibility="collapsed",
                          key=f"carta_{vaga['id']}")
 

@@ -52,8 +52,14 @@ if funil.ofertas:
     partes.append(f"{funil.ofertas} oferta{'s' if funil.ofertas != 1 else ''}")
 if funil.recusas:
     partes.append(f"{funil.recusas} recusa{'s' if funil.recusas != 1 else ''}")
-partes.append(f"{funil.aguardando} aguardando retorno")
 st.markdown(" · ".join(partes))
+# "Aguardando retorno" não é o que o sistema sabe: ele sabe que foram enviadas
+# e que ninguém marcou resposta. A frase diz isso.
+if funil.enviadas and not funil.com_resposta and not funil.recusas:
+    st.caption("Nenhuma resposta identificada ainda. Marque abaixo quando uma "
+               "empresa responder.")
+elif funil.aguardando:
+    st.caption(f"{funil.aguardando} sem resposta identificada.")
 
 with get_session() as session:
     atencao = (session.query(func.count(Candidatura.id))
@@ -71,9 +77,16 @@ if atencao:
 _ui.secao("O que aconteceu com cada uma")
 
 with get_session() as session:
-    enviadas = (session.query(Vaga.id, Vaga.empresa, Vaga.titulo)
+    # A data é a da candidatura registrada (pela esteira ou por "Já me
+    # candidatei"), não a última mudança da vaga — a varredura de encerradas
+    # também toca a vaga.
+    ultima = (session.query(Candidatura.vaga_id,
+                            func.max(Candidatura.criado_em).label("em"))
+              .group_by(Candidatura.vaga_id).subquery())
+    enviadas = (session.query(Vaga.id, Vaga.empresa, Vaga.titulo, ultima.c.em)
+                .outerjoin(ultima, ultima.c.vaga_id == Vaga.id)
                 .filter(Vaga.status.in_(acompanhamento.ENVIADAS))
-                .order_by(Vaga.id.desc()).all())
+                .order_by(ultima.c.em.desc().nullslast(), Vaga.id.desc()).all())
 desfechos = acompanhamento.por_vaga([v[0] for v in enviadas])
 
 OPCOES = [acompanhamento.SEM_RESPOSTA, "recebida", "resposta", "entrevista",
@@ -88,20 +101,26 @@ def _marcar(vaga_id: int, chave: str) -> None:
 
 if not enviadas:
     st.caption("Nenhuma candidatura enviada ainda.")
-for vaga_id, empresa, titulo in enviadas:
+envios = st.container(key="envios")
+for vaga_id, empresa, titulo, em in enviadas:
     atual = desfechos.get(vaga_id)
     chave = f"desfecho_{vaga_id}"
-    esq, dir_ = st.columns([3, 2], vertical_alignment="center")
-    with esq:
-        st.markdown(f"**{empresas.nome_exibicao(empresa) or empresa}** — "
-                    f"{fila.titulo_exibicao(titulo)}")
-    with dir_:
-        st.selectbox(
-            "Resposta obtida", OPCOES,
-            index=OPCOES.index(atual.value) if atual else 0,
-            format_func=lambda c: _rotulo[c], key=chave,
-            label_visibility="collapsed", on_change=_marcar, args=(vaga_id, chave),
-        )
+    with envios:
+        esq, dir_ = st.columns([3.4, 1.6], vertical_alignment="center")
+        with esq:
+            quando = f"Enviada em {em.strftime('%d/%m')}" if em else "Enviada"
+            st.markdown(
+                f'<div class="vaga-empresa">{empresas.nome_exibicao(empresa) or empresa}</div>'
+                f'<div style="font-weight:600;color:var(--txt-1)">{fila.titulo_exibicao(titulo)}</div>'
+                f'<div class="meta-linha">{quando}</div>',
+                unsafe_allow_html=True)
+        with dir_:
+            st.selectbox(
+                "Resposta obtida", OPCOES,
+                index=OPCOES.index(atual.value) if atual else 0,
+                format_func=lambda c: _rotulo[c], key=chave,
+                label_visibility="collapsed", on_change=_marcar, args=(vaga_id, chave),
+            )
 
 # ── Filtros ───────────────────────────────────────────────────────────────────
 

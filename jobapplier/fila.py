@@ -34,7 +34,7 @@ DECISOES = {
     "enviada": "enviada_manual",
     "descartar": "descartada_por_voce",
     "adiar": "adiada",
-    # "Abrir e candidatar": o painel abre o link E registra que você abriu. A
+    # "Abrir candidatura": o painel abre o link E registra que você abriu. A
     # vaga NÃO sai da fila — o que se sabe é que o link foi aberto, não que a
     # candidatura saiu. Sair só com "enviei" ou "não é para mim".
     "abrir": "aberta",
@@ -79,6 +79,17 @@ def titulo_exibicao(titulo: str | None) -> str:
     return re.sub(r"^\d{4,}\s*[-|:·]\s*", "", t) or t
 
 
+def local_exibicao(localizacao: str | None) -> str:
+    """`São Paulo, São Paulo, Brasil` → `São Paulo`.
+
+    Só o formato de três campos (cidade, estado, país) é cortado: texto livre
+    como `Brazil (São Paulo - Hybrid)` fica como está, porque não há campo
+    para separar. Aqui e não na UI, pelo mesmo motivo de `titulo_exibicao`.
+    """
+    partes = [p.strip() for p in (localizacao or "").split(",")]
+    return partes[0] if len(partes) == 3 and partes[0] else (localizacao or "")
+
+
 def _item(vaga, curriculos: set[int], cartas: set[int]) -> ItemFila:
     from jobapplier import aderencia, empresas
 
@@ -91,7 +102,7 @@ def _item(vaga, curriculos: set[int], cartas: set[int]) -> ItemFila:
         plataforma=(vaga.plataforma or "").lower(),
         link=vaga.link or "",
         score=round(vaga.score or 0, 1),
-        localizacao=vaga.localizacao or "",
+        localizacao=local_exibicao(vaga.localizacao),
         modalidade=vaga.modalidade or "",
         status=vaga.status or "",
         tem_curriculo=vaga.id in curriculos,

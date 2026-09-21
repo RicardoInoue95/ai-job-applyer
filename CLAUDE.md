@@ -146,8 +146,9 @@ e o envio do perfil a usa.
 
 ### A interface mostra a jornada, não o sistema
 
-Navegação: **Início · Vagas · Revisar · N · Candidaturas**, e "Mais" com
-Configurações e Currículos e cartas. Seis páginas de mesmo peso eram o sistema
+Navegação: **Início · Vagas · Revisar · N · Candidaturas**, um traço, e
+Configurações — sem grupo "Mais": com um item só, o rótulo do grupo é ruído
+(`app.py` passa lista, não dict; `_ui` desenha o traço por CSS). Seis páginas de mesmo peso eram o sistema
 se apresentando; o produto é *encontrar → decidir → preparar → enviar →
 acompanhar*, e a barra segue essa ordem. O contador em "Revisar · 42" é
 `fila.precisam_de_voce()`: excelentes (≥ `threshold_auto`) com dossiê pronto.
@@ -240,7 +241,7 @@ Rotas que o painel consome: `/saude`, `/fila` (`tudo=1` para o acervo),
 **A inbox é a tela padrão do painel** (`painel/src/Inbox.tsx`): uma vaga por
 vez, `← 3 / 42 →`, nível 1 da aderência no cartão, checklist do dossiê, a
 evidência atrás de "por que combina" (uma chamada por vaga, só quando aberta).
-Ações: **Abrir e candidatar** (primária — abre o link numa aba E grava
+Ações: **Abrir candidatura** (primária — abre o link numa aba E grava
 `aberta`; a vaga NÃO sai da fila, porque abrir o link não é enviar), e
 "Já me candidatei" / "Depois" / "Não é para mim". Atalhos: ← → navegam, Enter
 abre, A candidatei, S depois, E não é para mim — ignorados quando o foco está
@@ -990,8 +991,29 @@ arquivo. As decisões que ele fixa e que já custaram retrabalho:
   `.st-key-nav-config`), não por segmented control: nove rótulos numa linha não
   cabem. Cada etapa do assistente já se intitula; só Documentos e Respostas
   ganham título da navegação.
-- **Localização na tela é a cidade** (`_ui.local_curto`): "São Paulo, São
-  Paulo, Brasil" vira "São Paulo". Texto livre fica como está.
+- **Localização na tela é a cidade** (`fila.local_exibicao`, que `_ui.local_curto`
+  delega e o painel recebe pronto): "São Paulo, São Paulo, Brasil" vira "São
+  Paulo". Texto livre fica como está.
+- **"Abrir candidatura", não "Abrir e candidatar".** O botão abre o site e
+  registra `aberta`; quem envia é você. O nome não promete o que o sistema não
+  faz — vale no webapp e no painel.
+- **Evidência é palavra + número, não barra.** "Tecnologias · Forte · 89%",
+  tecnologias cobertas em chips e "⚠ Não cita: PySpark". Cinco barras quase
+  cheias lado a lado pareciam painel de métricas e não ajudavam a decidir
+  (`_ui.evidencia`, `painel/src/Inbox.tsx`, mesma régua de palavras).
+- **Lista de vagas tem uma linha de inteligência por cartão** — o `porque` do
+  nível 1 —, e só ela: o ponto de atenção em cem cartões vira ruído e fica em
+  Detalhes e em Revisar. Cartão com padding 12/16 e "Detalhes" colado.
+- **Lista longa em Configurações é resumo + "Editar (N)"**: "São Paulo, Remoto,
+  Barueri e mais 98", e os chips só dentro do editor. Cem chips na tela era um
+  gerenciador de etiquetas.
+- **"Aguardando retorno" não existe.** O sistema sabe que enviou e que ninguém
+  marcou resposta; a frase é "Nenhuma resposta identificada ainda". Cada
+  candidatura enviada mostra a data (`max(candidaturas.criado_em)` por vaga —
+  não `vagas.atualizado_em`, que a varredura de encerradas também toca).
+- **`kind="primaryFormSubmit"`** é o botão de formulário: a regra de botão
+  primário precisa listá-lo, senão "Salvar preferências" sai com texto cinza
+  sobre índigo. Medido na captura.
 
 **Limites do Streamlit já testados, para não repetir a tentativa:**
 

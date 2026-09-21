@@ -176,8 +176,23 @@ if not vagas:
               "Tente afrouxar a busca, o status ou a aderência mínima.")
     st.stop()
 
-st.caption(f"{len(vagas)} vaga{'s' if len(vagas) != 1 else ''} · "
-           "ordenadas por aderência (máx. 100)")
+ativos = [
+    *(f"“{busca.strip()}”" for _ in [0] if busca.strip()),
+    *([_rotulo_status(status_filter)] if status_filter != "aguardando você" else []),
+    *([_FAIXAS[aderencia_min]] if aderencia_min else []),
+    *(m.capitalize() for m in modalidades),
+    *(p.title() for p in plataformas),
+    *([localizacao_busca.strip()] if localizacao_busca.strip() else []),
+    *senioridades,
+    *(["descartadas incluídas"] if mostrar_filtradas else []),
+]
+st.markdown(
+    f'<div class="vaga-meta" style="margin:var(--e2) 0 var(--e3)">'
+    f'<span>{len(vagas)} vaga{"s" if len(vagas) != 1 else ""}, por aderência</span>'
+    + ("".join(_ui.badge(x) for x in ativos) if ativos else "")
+    + "</div>",
+    unsafe_allow_html=True,
+)
 
 lista = st.container(key="lista")
 for vaga in vagas:
@@ -195,14 +210,20 @@ for vaga in vagas:
         f"<span>{senioridade}</span>" if senioridade else "",
     )
 
+    a = aderencia.analisar(vaga).como_dict()
     with lista, st.container(border=True):
         esq, dir_ = st.columns([3.2, 1], vertical_alignment="top")
         with esq:
+            # Uma linha do que a IA concluiu — o "porquê" do nível 1. Sem ela
+            # o cartão era só título e número, e o trabalho de análise ficava
+            # invisível. O ponto de atenção não vai aqui: em cem cartões vira
+            # ruído; ele aparece em Detalhes e em Revisar.
             st.markdown(
                 f'<div class="vaga-empresa">'
                 f'{empresas.nome_exibicao(vaga.empresa) or vaga.empresa or "—"}</div>'
                 f'<div class="vaga-titulo">{_ui.titulo_limpo(vaga.titulo) or "—"}</div>'
-                f'{meta}',
+                f'{meta}'
+                + (f'<div class="vaga-porque">{a["porque"]}</div>' if a.get("porque") else ""),
                 unsafe_allow_html=True,
             )
         with dir_:
@@ -215,7 +236,7 @@ for vaga in vagas:
             st.markdown(
                 '<div style="display:flex;flex-direction:column;'
                 'align-items:flex-end;gap:.35rem">'
-                f'{_ui.conclusao(aderencia.analisar(vaga).como_dict(), so_titulo=True)}'
+                f'{_ui.conclusao(a, so_titulo=True)}'
                 f'{preparada}'
                 '</div>',
                 unsafe_allow_html=True,
@@ -225,8 +246,6 @@ for vaga in vagas:
             # Nível 2 pelo serviço: barras por eixo, tecnologias cobertas e o
             # que falta. Antes eram dois dicionários crus lidos à mão aqui e
             # de outro jeito em Revisar — a mesma vaga explicada de duas formas.
-            a = aderencia.analisar(vaga).como_dict()
-            st.markdown(f"**{a['porque']}**")
             if a.get("atencao"):
                 st.markdown(f"⚠ {a['atencao']}")
             _ui.evidencia(a)
