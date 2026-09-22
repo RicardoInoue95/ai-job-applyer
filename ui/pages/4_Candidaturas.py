@@ -64,10 +64,21 @@ elif funil.aguardando:
 with get_session() as session:
     atencao = (session.query(func.count(Candidatura.id))
                .filter(Candidatura.status == "revisao_manual").scalar() or 0)
+
+
+def _ver_atencao() -> None:
+    """Aplica o filtro "Envio não confirmado" no histórico: a frase apontava
+    para uma seção 900px abaixo, sem link nem filtro (auditoria de UX)."""
+    st.session_state["h_status"] = "revisao_manual"
+    st.session_state["h_busca"] = ""
+    st.session_state["h_plataforma"] = []
+
+
 if atencao:
     st.markdown(f"**{atencao} precisa{'m' if atencao != 1 else ''} de atenção** — "
-                "confirme uma informação ou verifique se o envio saiu. Estão "
-                "marcadas como *Envio não confirmado* no histórico.")
+                "confirme uma informação ou verifique se o envio saiu.")
+    st.button(f"Ver {'as ' if atencao != 1 else 'a '}{atencao} no histórico",
+              icon=":material/arrow_downward:", type="tertiary", on_click=_ver_atencao)
 
 # ── O que aconteceu com cada uma ─────────────────────────────────────────────
 # Um seletor por candidatura enviada. Mudar grava na hora; "sem resposta"
@@ -114,7 +125,11 @@ def _perguntas_do_erro(texto: str) -> list[str]:
 
 
 def _marcar(vaga_id: int, chave: str) -> None:
-    acompanhamento.registrar(vaga_id, st.session_state[chave])
+    valor = st.session_state[chave]
+    acompanhamento.registrar(vaga_id, valor)
+    # Gravar em silêncio deixava a dúvida "salvou?". O toast é o único feedback
+    # que não empurra a lista.
+    st.toast(f"Anotado: {_rotulo[valor]}.", icon=":material/check:")
 
 
 if not enviadas:
@@ -232,7 +247,7 @@ st.dataframe(
         "Vaga": st.column_config.TextColumn(width="large"),
         "Data": st.column_config.DatetimeColumn(format="DD/MM/YY HH:mm",
                                                 width="medium"),
-        "Abrir": st.column_config.LinkColumn(display_text="Ver vaga",
+        "Abrir": st.column_config.LinkColumn(display_text="Abrir vaga",
                                              width="small"),
     },
 )

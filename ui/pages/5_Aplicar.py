@@ -153,6 +153,23 @@ def decidir(vaga_id: int, novo_status: str, status_anterior: str) -> None:
     opcoes_de_filtro.clear()
 
 
+_DECISAO_TEXTO = {
+    "enviada_manual": "Marcada como enviada",
+    "descartada_por_voce": "Descartada",
+    "adiada": "Deixada para depois",
+}
+
+
+def decidir_e_avisar(vaga: dict, novo_status: str) -> None:
+    """Decide e diz o que fez com qual vaga: a próxima aparecia no lugar sem
+    nenhuma frase, e quem piscou não sabia o que tinha acontecido."""
+    decidir(vaga["id"], novo_status, vaga["status"])
+    st.toast(f"{_DECISAO_TEXTO.get(novo_status, 'Decidida')}: "
+             f"{_ui.titulo_limpo(vaga['titulo'])} — "
+             f"{empresas.nome_exibicao(vaga['empresa']) or vaga['empresa']}. "
+             "Dá para desfazer no topo.", icon=":material/check:")
+
+
 def desfazer() -> None:
     """Devolve a última vaga decidida ao status em que estava."""
     ultima = st.session_state.get("ultima_decisao")
@@ -311,6 +328,18 @@ with coluna_vaga:
     # Uma primária, larga. Duas secundárias na linha de baixo. "Deixar para
     # depois" não é ação equivalente às outras — é adiar a decisão — e por
     # isso não ganha botão do mesmo peso.
+    # No celular as colunas empilham e a prova (checklist da direita) ficava a
+    # 1,5 tela do botão. Uma linha compacta, só visível abaixo de 768px, põe o
+    # "✓ Currículo · ✓ Carta" onde a decisão acontece; a coluna da direita
+    # segue inteira para download e carta.
+    _pdf_m, _carta_m = documentos(vaga["id"])
+    prontos_mobile = " · ".join(
+        f"✓ {nome}" for nome, ok in (("Currículo", bool(_pdf_m)),
+                                     ("Carta", bool(_carta_m))) if ok)
+    if prontos_mobile:
+        st.markdown(f'<div class="so-mobile meta-linha" style="color:var(--ok);'
+                    f'margin-top:var(--e2)">{prontos_mobile} — preparados para esta vaga</div>',
+                    unsafe_allow_html=True)
     st.write("")
     # "Abrir candidatura", não "Abrir e candidatar": o botão abre o site e
     # registra que você abriu; quem envia é você, lá. O nome não pode prometer
@@ -322,16 +351,16 @@ with coluna_vaga:
     with b1:
         if st.button("Já me candidatei", icon=":material/check:",
                      use_container_width=True):
-            decidir(vaga["id"], "enviada_manual", vaga["status"])
+            decidir_e_avisar(vaga, "enviada_manual")
             st.rerun()
     with b2:
         if st.button("Não tenho interesse", icon=":material/close:",
                      use_container_width=True):
-            decidir(vaga["id"], "descartada_por_voce", vaga["status"])
+            decidir_e_avisar(vaga, "descartada_por_voce")
             st.rerun()
     if st.button("Deixar para depois", icon=":material/schedule:", type="tertiary",
                  help="Sai da fila principal e fica guardada. Não se perde."):
-        decidir(vaga["id"], "adiada", vaga["status"])
+        decidir_e_avisar(vaga, "adiada")
         st.rerun()
 
     # ── Por que combina (nível 2: evidência) ────────────────────────────────
@@ -445,7 +474,10 @@ with coluna_apoio, st.container(key="lado"):
             trecho = trecho[:200].rstrip() + "…"
         st.caption(f"“{trecho}”")
         with st.expander("Ler carta completa"):
-            st.text_area("carta", carta, height=320, label_visibility="collapsed",
-                         key=f"carta_{vaga['id']}")
+            # Só leitura: o text_area parecia editável e nada era salvo.
+            st.markdown(
+                '<div class="carta-leitura">'
+                + carta.strip().replace("\n", "<br>")
+                + "</div>", unsafe_allow_html=True)
 
 

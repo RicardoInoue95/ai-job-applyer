@@ -59,12 +59,12 @@ def test_requisito_eliminatorio_vem_antes_de_tudo():
         90, missing_required=["PySpark"],
         gaps=["tecnologias da vaga ausentes no currículo: PySpark, Spark"],
         eixos={"localizacao": 0}))
-    assert a.atencao == "Pede PySpark, que não está no seu currículo."
+    assert a.atencao == "Exige PySpark, que não está no seu currículo."
 
 
 def test_plural_no_eliminatorio():
     a = aderencia.analisar(_vaga(80, missing_required=["SQL Server", "Excel"]))
-    assert a.atencao == "Pede SQL Server e Excel, que não estão no seu currículo."
+    assert a.atencao == "Exige SQL Server e Excel, que não estão no seu currículo."
 
 
 def test_localizacao_zerada_e_apontada():

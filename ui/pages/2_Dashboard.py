@@ -31,7 +31,7 @@ try:
     from jobapplier import acompanhamento, aderencia, fila, paths
     from jobapplier import envio_automatico as ea
     from jobapplier.database.connection import get_session
-    from jobapplier.database.models import Vaga
+    from jobapplier.database.models import Candidatura, Vaga
 except Exception as exc:
     st.error(f"Banco de dados indisponível: {exc}", icon=":material/error:")
     st.info("Execute `python run.py` para subir o Postgres e a aplicação.")
@@ -43,7 +43,11 @@ def _numeros() -> dict:
     """O pouco que esta página precisa, numa ida ao banco."""
     with get_session() as sessao:
         ultima_coleta = sessao.query(func.max(Vaga.ultima_coleta_em)).scalar()
-    return {"ultima_coleta": ultima_coleta}
+        # "Envio não confirmado" é a única coisa acionável de Candidaturas; o
+        # Início mostrava só o que pede decisão em Revisar (auditoria de UX).
+        atencao = (sessao.query(func.count(Candidatura.id))
+                   .filter(Candidatura.status == "revisao_manual").scalar() or 0)
+    return {"ultima_coleta": ultima_coleta, "atencao": atencao}
 
 
 @st.cache_data(ttl=30)
@@ -152,6 +156,11 @@ if funil.enviadas and funil.com_resposta == 0 and funil.recusas == 0:
 elif funil.aguardando:
     st.markdown(f'<div class="meta-linha" style="color:var(--txt-2)">'
                 f'{funil.aguardando} sem resposta identificada.</div>',
+                unsafe_allow_html=True)
+if numeros.get("atencao"):
+    n = numeros["atencao"]
+    st.markdown(f'<div class="meta-linha" style="color:var(--aviso)">'
+                f'⚠ {n} precisa{"m" if n != 1 else ""} de atenção — envio não confirmado.</div>',
                 unsafe_allow_html=True)
 st.page_link("pages/4_Candidaturas.py", label="Ver candidaturas",
              icon=":material/send:")

@@ -51,8 +51,13 @@ _OPCOES = ["aguardando você", *_aguardando, *_demais, "todas"]
 
 
 def _rotulo_status(codigo: str) -> str:
-    if codigo in ("todas", "aguardando você"):
-        return codigo.capitalize()
+    # "Na fila" é a fila inteira (394); "precisam de você" (42, na barra) é o
+    # subconjunto com dossiê e aderência alta. Chamar o filtro de "Aguardando
+    # você" fazia os dois parecerem o mesmo número.
+    if codigo == "aguardando você":
+        return "Na fila"
+    if codigo == "todas":
+        return "Todas"
     return vocab.de_vaga(codigo).rotulo
 
 
@@ -113,7 +118,9 @@ with st.expander("Mais filtros"):
 
 # ── Consulta ──────────────────────────────────────────────────────────────────
 
-def _get_vagas(status: str, busca: str) -> list:
+def _get_vagas(status: str, busca: str) -> tuple[list, int]:
+    """Devolve (até 100 vagas, total que casa com os filtros). O total existe
+    para a legenda dizer "100 de 808" — o teto era silencioso."""
     with get_session() as session:
         q = session.query(Vaga)
         if status == "aguardando você":
@@ -141,11 +148,13 @@ def _get_vagas(status: str, busca: str) -> list:
             aceitas = {x.lower() for x in senioridades}
             vagas = (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
                      .limit(400).all())
-            return [v for v in vagas
-                    if isinstance(v.normalizado_json, dict)
-                    and (v.normalizado_json.get("senioridade") or "").lower() in aceitas][:100]
+            filtradas = [v for v in vagas
+                         if isinstance(v.normalizado_json, dict)
+                         and (v.normalizado_json.get("senioridade") or "").lower() in aceitas]
+            return filtradas[:100], len(filtradas)
+        total = q.count()
         return (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
-                .limit(100).all())
+                .limit(100).all()), total
 
 
 def _aprovar(vaga_id: int, score_val: float | None):
@@ -165,7 +174,11 @@ def _rejeitar(vaga_id: int, score_val: float | None):
                                             aprovado=False, criado_em=agora_utc()))
 
 
-vagas = _get_vagas(status_filter, busca)
+vagas, total = _get_vagas(status_filter, busca)
+# Em "Na fila" o status é sempre o mesmo e nos filtros por código você acabou
+# de escolhê-lo. Em "Todas" ele é a única defesa: as quatro primeiras eram
+# encerradas com 100% e ninguém via (auditoria de UX).
+mostrar_status = status_filter == "todas"
 
 # Filtros ativos como chips — também no estado vazio, que é justamente
 # quando se pergunta "por que não vejo nada?".
@@ -182,8 +195,12 @@ ativos = [
 
 
 def _linha_de_contagem(n: int) -> None:
-    rotulo = (f"{n} vaga{'s' if n != 1 else ''}, por aderência" if n
-              else "Nenhuma vaga")
+    if not n:
+        rotulo = "Nenhuma vaga"
+    elif total > n:
+        rotulo = f"{n} de {total} vagas, por aderência"
+    else:
+        rotulo = f"{n} vaga{'s' if n != 1 else ''}, por aderência"
     st.markdown(
         f'<div class="vaga-meta" style="margin:var(--e2) 0 var(--e3)">'
         f'<span>{rotulo}</span>'
@@ -258,13 +275,19 @@ for vaga in vagas:
             # e nos outros filtros você acabou de escolhê-lo. Fica um sinal
             # pequeno só quando a vaga tem dossiê pronto, porque isso muda o
             # que fazer com ela — revisar, não aprovar.
-            preparada = ('<span class="meta-linha" style="color:var(--ok)">● Preparada</span>'
+            if mostrar_status:
+                sinal = _ui.badge_status(vaga.status)
+            else:
+                # "Preparada" leva à página que a usa: antes era um sinal
+                # sem destino, e a pessoa ia procurar a vaga na fila de 42.
+                sinal = ('<a class="meta-linha" style="color:var(--ok)" href="/revisar" '
+                         'target="_self">● Preparada · revisar</a>'
                          if vaga.status == "pronta_envio_manual" else "")
             st.markdown(
                 '<div style="display:flex;flex-direction:column;'
                 'align-items:flex-end;gap:.35rem">'
                 f'{_ui.conclusao(a, so_titulo=True)}'
-                f'{preparada}'
+                f'{sinal}'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -286,7 +309,7 @@ for vaga in vagas:
 
             a1, a2, a3 = st.columns([1.3, 1, 1])
             with a1:
-                st.link_button("Abrir vaga original", vaga.link or "#",
+                st.link_button("Abrir vaga", vaga.link or "#",
                                icon=":material/open_in_new:",
                                use_container_width=True)
             if vaga.status == "pendente":

@@ -253,6 +253,18 @@ CSS = """
     [data-testid="stDataFrame"] [data-testid="stElementToolbar"] { top: 2px; }
   }
 
+  /* Carta em leitura: era text_area (parecia editável; nada salvava). */
+  .carta-leitura { background: var(--superficie); border: 1px solid var(--borda-forte);
+                   border-radius: var(--raio-p); padding: var(--e4) var(--e5);
+                   font-size: var(--txt); line-height: 1.6; color: var(--txt-2);
+                   max-width: var(--medida); }
+  /* Só no celular: o resumo "✓ Currículo · ✓ Carta" sob o cartão de Revisar. */
+  .so-mobile { display: none; }
+  @media (max-width: 767px) {
+    .so-mobile { display: block; }
+    .st-key-lado .check-linha { display: none; }
+  }
+
   /* Candidaturas enviadas: uma linha por vaga, com traço entre elas. */
   .st-key-envios .stHorizontalBlock { padding: var(--e3) 0; border-bottom: 1px solid var(--borda); }
   .st-key-envios.stVerticalBlock { gap: 0; }

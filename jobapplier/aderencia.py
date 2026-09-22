@@ -144,8 +144,10 @@ def _ponto_de_atencao(breakdown: dict, eixos: list[Eixo]) -> str:
     """
     faltam = [t for t in (breakdown.get("missing_required") or []) if t]
     if faltam:
+        # "Exige", não "Pede": requisito eliminatório e tecnologia desejável
+        # ("Não cita X") tinham frases parecidas e a pessoa não sabia o peso.
         verbo = "estão" if len(faltam) > 1 else "está"
-        return f"Pede {_agrupar(faltam)}, que não {verbo} no seu currículo."
+        return f"Exige {_agrupar(faltam)}, que não {verbo} no seu currículo."
 
     por_nome = {e.nome: e for e in eixos}
     local = por_nome.get("Localização")

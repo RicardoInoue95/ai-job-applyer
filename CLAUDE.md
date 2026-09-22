@@ -361,6 +361,7 @@ docs/
   REVISAO_NEGOCIO.md       prompt de revisão de produto
   DESIGN_QA.md             auditoria de UI medida com Playwright, e o antes/depois
   DESIGN_AUDIT.md          auditoria profunda (colisão, clipping, teclado, tokens) + rodada 1
+  UX_AUDIT.md              auditoria de UX/produto: jornada, escala, mobile, decisões + rodada 2
   TUTORIAL_LINKEDIN.md     passo a passo do perfil
   prompt_carreira.md       fatos profissionais — fonte única
   prompt_curriculos.md     regras de currículo por vaga
@@ -1053,6 +1054,18 @@ arquivo. As decisões que ele fixa e que já custaram retrabalho:
 - **`docs/DESIGN_AUDIT.md`** tem a auditoria profunda (colisões, clipping,
   teclado, hover, tokens derivados) e o "Implementation Round 1" com o
   antes/depois; `data/screenshots/design-audit_antes/` é a linha de base.
+- **Status volta ao cartão de Vagas quando o filtro não o fixa** ("Todas"):
+  sem ele, as quatro primeiras eram encerradas com "100% · Excelente" e ninguém
+  via. A legenda diz "100 de 809" — o `limit(100)` era silencioso. O filtro se
+  chama "Na fila" (325); "precisam de você" (42) é outro conjunto.
+- **Toda ação que grava avisa o que fez** (`st.toast`): decidir em Revisar
+  ("Marcada como enviada: vaga — empresa. Dá para desfazer no topo.") e marcar
+  desfecho em Candidaturas. Antes a próxima vaga aparecia sem frase nenhuma.
+- **Carta é leitura** (`.carta-leitura`), nunca `text_area`: parecia editável
+  e nada salvava. **Detalhe de Documentos fica acima da tabela** (contêiner
+  reservado antes, preenchido depois da seleção) — abaixo, caía fora da tela.
+- **`docs/UX_AUDIT.md`**: auditoria de UX/produto (jornada, escala 10→1.000,
+  mobile, decisões de produto pendentes) e o "Implementation Round 2".
 - **`kind="primaryFormSubmit"`** é o botão de formulário: a regra de botão
   primário precisa listá-lo, senão "Salvar preferências" sai com texto cinza
   sobre índigo. Medido na captura.

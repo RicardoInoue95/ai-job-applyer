@@ -154,6 +154,11 @@ def render(com_cabecalho: bool = True) -> None:
         for d in filtrados
     ]
 
+    # O detalhe vai ACIMA da tabela: renderizado depois (precisa da seleção),
+    # mas num espaço reservado antes — a tabela tem 560px e o detalhe caía
+    # fora da tela nos dois viewports (auditoria de UX).
+    detalhe = st.container()
+
     selecao = st.dataframe(
         linhas,
         use_container_width=True, hide_index=True, height=560,
@@ -178,35 +183,37 @@ def render(com_cabecalho: bool = True) -> None:
 
     # ── Detalhe ───────────────────────────────────────────────────────────────────
 
-    doc = filtrados[escolhidas[0]]
-    st.divider()
+    with detalhe:
+        doc = filtrados[escolhidas[0]]
 
-    topo, baixar = st.columns([5, 2])
-    with topo:
-        st.markdown(f"**{doc['exibicao']}** — {doc['titulo']}")
-        quando = doc["gerado_em"].strftime("%d/%m/%Y") if doc["gerado_em"] else "—"
-        selo = " · escrito à mão" if doc["manuscrito"] else ""
-        st.caption(f"vaga {doc['vaga_id']} · {doc['plataforma'] or '—'} · "
-                   f"perfil {doc['perfil'] or '—'}{selo} · gerado em {quando}")
-    with baixar:
-        curriculo = Path(doc["curriculo"]) if doc["curriculo"] else None
-        if curriculo and curriculo.exists():
-            st.download_button("Baixar currículo", curriculo.read_bytes(),
-                               file_name=curriculo.name, mime="application/pdf",
-                               type="primary", use_container_width=True,
-                               key=f"cv_{doc['vaga_id']}")
-        carta = Path(doc["carta"]) if doc["carta"] else None
-        if carta and carta.exists():
-            st.download_button("Baixar carta", carta.read_bytes(),
-                               file_name=carta.name, mime="text/plain",
-                               use_container_width=True, key=f"ct_{doc['vaga_id']}")
+        topo, baixar = st.columns([5, 2])
+        with topo:
+            st.markdown(f"**{doc['exibicao']}** — {doc['titulo']}")
+            quando = doc["gerado_em"].strftime("%d/%m/%Y") if doc["gerado_em"] else "—"
+            selo = " · escrito à mão" if doc["manuscrito"] else ""
+            st.caption(f"vaga {doc['vaga_id']} · {doc['plataforma'] or '—'} · "
+                       f"perfil {doc['perfil'] or '—'}{selo} · gerado em {quando}")
+        with baixar:
+            curriculo = Path(doc["curriculo"]) if doc["curriculo"] else None
+            if curriculo and curriculo.exists():
+                st.download_button("Baixar currículo", curriculo.read_bytes(),
+                                   file_name=curriculo.name, mime="application/pdf",
+                                   type="primary", use_container_width=True,
+                                   key=f"cv_{doc['vaga_id']}")
+            carta = Path(doc["carta"]) if doc["carta"] else None
+            if carta and carta.exists():
+                st.download_button("Baixar carta", carta.read_bytes(),
+                                   file_name=carta.name, mime="text/plain",
+                                   use_container_width=True, key=f"ct_{doc['vaga_id']}")
 
-    if doc["carta"]:
-        carta = Path(doc["carta"])
-        if carta.exists():
-            # Aberto, não em expander: a carta é curta e é o que se quer conferir
-            # antes de reaproveitar. Um clique a mais para ler cinco linhas é tédio.
-            st.text_area("Carta", carta.read_text(encoding="utf-8"), height=220,
-                         label_visibility="collapsed", key=f"txt_{doc['vaga_id']}")
-    else:
-        st.caption("Esta vaga não tem carta — ela é opcional no dossiê.")
+        if doc["carta"]:
+            carta = Path(doc["carta"])
+            if carta.exists():
+                # Aberto, não em expander: a carta é curta e é o que se quer conferir
+                # antes de reaproveitar. Um clique a mais para ler cinco linhas é tédio.
+                st.markdown(
+                    '<div class="carta-leitura">'
+                    + carta.read_text(encoding="utf-8").strip().replace("\n", "<br>")
+                    + "</div>", unsafe_allow_html=True)
+        else:
+            st.caption("Esta vaga não tem carta — ela é opcional no dossiê.")

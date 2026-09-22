@@ -417,6 +417,9 @@ def _descobrir_empresas(setores: str, cargos: str, api_key: str | None = None) -
 def step_3():
     st.markdown("#### Preferências de busca")
     st.markdown("Configure os critérios de busca e as empresas que serão monitoradas.")
+    if not _no_assistente():
+        st.caption("Esta seção tem três blocos — busca, dados pessoais e pretensão — "
+                   "e cada um salva com o próprio botão.")
 
     saved = config.get("coleta") or {}
 
