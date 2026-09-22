@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- Fixture SINTÉTICA do Easy Apply: a estrutura conhecida do diálogo (role=dialog,
+     label for=, fieldset/legend, input type=file "Upload resume") sem nenhum dado
+     real. Captura real traria conteúdo do LinkedIn e dado pessoal. A página em
+     volta tem a busca de vagas — que NÃO é pergunta e não pode ir para a API. -->
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Vaga de teste e2e | LinkedIn</title></head>
+<body>
+  <header>
+    <label for="jobs-search-box">Pesquisar vagas</label>
+    <input id="jobs-search-box" type="text" placeholder="Cargo, competência ou empresa">
+  </header>
+
+  <main>
+    <h1>Vaga de teste e2e</h1>
+    <p>Acme Teste E2E · São Paulo</p>
+  </main>
+
+  <div role="dialog" aria-labelledby="easy-apply-title" class="jobs-easy-apply-modal">
+    <h2 id="easy-apply-title">Candidatar-se a Vaga de teste e2e</h2>
+
+    <div class="jobs-easy-apply-form-section">
+      <label for="e2e_cor">Qual a cor de teste e2e da extensão?</label>
+      <input id="e2e_cor" name="e2e_cor" type="text">
+    </div>
+
+    <fieldset>
+      <legend>Você aceita participar do teste e2e da extensão?</legend>
+      <input type="radio" id="e2e_sim" name="e2e_aceita" value="Sim"><label for="e2e_sim">Sim</label>
+      <input type="radio" id="e2e_nao" name="e2e_aceita" value="Não"><label for="e2e_nao">Não</label>
+    </fieldset>
+
+    <div class="jobs-document-upload">
+      <label for="jobs-document-upload-file-input-upload-resume">Upload resume</label>
+      <input id="jobs-document-upload-file-input-upload-resume" type="file" accept=".pdf,.doc,.docx">
+    </div>
+
+    <footer>
+      <!-- Nunca clicado pela extensão: tests/unit/test_extensao.py -->
+      <button type="button" aria-label="Continue to next step">Avançar</button>
+    </footer>
+  </div>
+</body>
+</html>

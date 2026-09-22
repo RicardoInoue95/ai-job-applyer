@@ -34,6 +34,17 @@ if (/\/job(s)?\//.test(location.pathname)) {
   chrome.runtime.sendMessage({ tipo: "vi_vaga", url: location.href });
 }
 
+// No LinkedIn o formulário é o diálogo do Easy Apply, aberto por cima da
+// página de vagas — que tem a busca, filtros e mensagens, todos <input>. Ler a
+// página inteira mandaria "Pesquisar vagas" para a API como pergunta. Fora do
+// LinkedIn, o formulário é a página.
+const NO_LINKEDIN = /(^|\.)linkedin\.com$/.test(location.hostname);
+function raizDoFormulario() {
+  if (!NO_LINKEDIN) return document;
+  return document.querySelector(
+    ".jobs-easy-apply-modal, [data-test-modal], div[role=dialog]") || null;
+}
+
 // O checkbox da Gupy não tem `value`: todos valem "on". Casar por valor marcaria
 // sempre o primeiro da lista — resposta errada com cara de certa. Por isso o
 // rótulo da opção também conta, e o seletor dela vem junto da leitura.
@@ -174,7 +185,9 @@ BOTAO.addEventListener("click", () => { if (preparado) aplicar(preparado); });
 async function preparar() {
   if (desistidas.has(location.href)) return;
 
-  const campos = lerCampos();
+  const raiz = raizDoFormulario();
+  if (!raiz) return;
+  const campos = lerCampos(raiz);
   if (!campos.length) return;
   const assinatura = assinaturaDe(campos);
   if (preparado && preparado.assinatura === assinatura) return;
@@ -209,15 +222,52 @@ async function preparar() {
   preparado = { assinatura, campos, dados };
   const sabe = dados.respostas.filter((r) => r.valor !== null && r.valor !== undefined).length;
   const manuais = dados.manuais || [];
-  aviso(`${campos.length} perguntas neste passo · ${sabe} o sistema sabe responder.`,
+  const anexo = dados.curriculo && campoDeArquivo(raiz)
+    ? ` Anexa o currículo desta vaga (${dados.curriculo}).` : "";
+  aviso(`${campos.length} perguntas neste passo · ${sabe} o sistema sabe responder.${anexo}`,
         manuais.length
           ? `${manuais.length} ficam para você: ${manuais.slice(0, 3).join(" · ")}`
           : "Todas têm resposta. O envio continua sendo seu.");
   AVISO.appendChild(BOTAO);
 }
 
+// O campo de arquivo do currículo. Na Gupy o <input type=file> fica escondido
+// atrás de uma área de arrastar; no Easy Apply é o "Upload resume". Um só
+// candidato: se houver vários campos de arquivo (portfólio, carta), só o que
+// fala em currículo/CV/resume — anexar o PDF no campo errado é pior que não
+// anexar.
+function campoDeArquivo(raiz) {
+  const todos = [...(raiz || document).querySelectorAll('input[type="file"]')]
+    .filter((c) => !c.disabled);
+  if (!todos.length) return null;
+  if (todos.length === 1) return todos[0];
+  const texto = (c) => [c.id, c.name, c.getAttribute("aria-label") || "",
+    (c.labels && [...c.labels].map((l) => l.textContent).join(" ")) || "",
+    c.closest("label, fieldset, div")?.textContent || ""].join(" ").toLowerCase();
+  return todos.find((c) => /curr[ií]culo|resume|\bcv\b/.test(texto(c))) || null;
+}
+
+// Anexa o PDF feito para a vaga. Só no clique, como tudo aqui: o service
+// worker traz os bytes (o content script não pode buscar), e o arquivo entra
+// pelo mesmo caminho de um arrasto — `DataTransfer` + evento `change`, que é
+// o que o React da plataforma escuta. Não clica em nada.
+async function anexarCurriculo(raiz, dados) {
+  const campo = campoDeArquivo(raiz);
+  if (!campo || !dados.curriculo) return null;
+  const r = await chrome.runtime.sendMessage({ tipo: "curriculo", vaga_id: dados.vaga_id });
+  if (!r || !r.ok) return { erro: (r && r.erro) || "sem resposta" };
+  const bytes = Uint8Array.from(atob(r.base64), (ch) => ch.charCodeAt(0));
+  const arquivo = new File([bytes], r.nome, { type: "application/pdf" });
+  const dt = new DataTransfer();
+  dt.items.add(arquivo);
+  campo.files = dt.files;
+  campo.dispatchEvent(new Event("input", { bubbles: true }));
+  campo.dispatchEvent(new Event("change", { bubbles: true }));
+  return { nome: r.nome };
+}
+
 // 2ª etapa: escreve. Só depois do clique.
-function aplicar({ campos, dados }) {
+async function aplicar({ campos, dados }) {
   // As opções ficam do lado de cá: a API devolve só o valor escolhido, e para
   // marcar o checkbox certo é preciso saber qual opção era.
   const lidos = new Map(campos.map((c) => [c.seletor, c]));
@@ -230,10 +280,15 @@ function aplicar({ campos, dados }) {
 
   observarManuais(dados.respostas, lidos);
 
+  let anexo = "";
+  const resultado = await anexarCurriculo(raizDoFormulario(), dados);
+  if (resultado && resultado.nome) anexo = ` Currículo anexado: ${resultado.nome}.`;
+  else if (resultado && resultado.erro) anexo = ` Não consegui anexar o currículo (${resultado.erro}).`;
+
   const manuais = dados.manuais || [];
   const doBanco = dados.aprendidas
     ? ` ${dados.aprendidas} do banco de respostas.` : "";
-  aviso(`${escritos} campos preenchidos.${doBanco}`,
+  aviso(`${escritos} campos preenchidos.${doBanco}${anexo}`,
         manuais.length
           ? `${manuais.length} ficaram para você: ${manuais.slice(0, 3).join(" · ")}`
           : "Confira antes de enviar — o envio é seu.");
@@ -244,7 +299,7 @@ function aplicar({ campos, dados }) {
 // as duas etapas.
 async function preencher() {
   await preparar();
-  if (preparado) aplicar(preparado);
+  if (preparado) await aplicar(preparado);
 }
 
 // Qual das vagas é esta? Só aparece quando o sistema NÃO consegue saber — sem

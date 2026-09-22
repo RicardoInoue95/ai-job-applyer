@@ -143,10 +143,13 @@ function preenchivel(campo) {
   return !String(campo.value || "").trim();
 }
 
-function lerCampos() {
+function lerCampos(raiz) {
   const vistos = new Set();
   const saida = [];
-  for (const campo of document.querySelectorAll("input, select, textarea")) {
+  // `raiz` limita a leitura: no LinkedIn o formulário é o diálogo do Easy
+  // Apply, e a página em volta tem a busca de vagas e a caixa de mensagens —
+  // que não são perguntas da candidatura.
+  for (const campo of (raiz || document).querySelectorAll("input, select, textarea")) {
     if (!preenchivel(campo)) continue;
     const label = rotuloDe(campo);
     if (!label) continue;

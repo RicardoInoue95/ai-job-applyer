@@ -88,6 +88,26 @@ def _ids_gupy(url: str) -> set[int]:
     return ids
 
 
+def _id_linkedin(url: str) -> str | None:
+    """`jobId` do LinkedIn, venha da página da vaga ou da busca.
+
+    `/jobs/view/4455387424/` é o link do acervo. Mas o Easy Apply também abre
+    de `/jobs/search/?currentJobId=4455387424` e de `/jobs/collections/…`,
+    onde o id só está no parâmetro — e é lá que o candidato costuma estar.
+    """
+    from urllib.parse import parse_qs, urlsplit
+
+    partes = urlsplit(url or "")
+    if "linkedin.com" not in partes.netloc:
+        return None
+    caminho = [s for s in partes.path.split("/") if s]
+    for i, seg in enumerate(caminho):
+        if seg.isdigit() and i and caminho[i - 1] == "view":
+            return seg
+    atual = parse_qs(partes.query).get("currentJobId", [""])[0]
+    return atual if atual.isdigit() else None
+
+
 def _vaga_por_url(url: str):
     """Encontra a vaga pelo link.
 
@@ -116,6 +136,13 @@ def _vaga_por_url(url: str):
             candidatas = (sessao.query(Vaga)
                           .filter(Vaga.link.like(f"https://{host}/%")).all())
             vaga = next((v for v in candidatas if _ids_gupy(v.link) & alvos), None)
+        if vaga is None and (id_li := _id_linkedin(url)):
+            # LinkedIn guarda o id da vaga em `fonte_vaga_id`; o link do
+            # acervo é `/jobs/view/<id>/`, mas o candidato chega pelo
+            # `currentJobId` da busca, que o prefixo não casa.
+            vaga = (sessao.query(Vaga)
+                    .filter(Vaga.plataforma == "linkedin", Vaga.fonte_vaga_id == id_li)
+                    .first())
         if vaga is not None:
             sessao.expunge(vaga)
         return vaga
@@ -334,8 +361,12 @@ async def responder(request):
     logger.info("Extensão pediu %d campos da vaga %s: %d respondidos "
                 "(%d do banco de respostas).",
                 len(respostas), vaga.id, len(respostas) - len(manuais), aprendidas)
+    # Qual currículo existe para esta vaga: a extensão anexa no campo de
+    # arquivo ao clicar. Só o nome — o PDF vem por `/vaga/{id}/curriculo`.
+    pdfs = sorted(paths.RESUMES.glob(f"resume_*_{vaga.id}.pdf"))
     return JSONResponse({"vaga_id": vaga.id, "respostas": respostas,
-                         "manuais": manuais, "aprendidas": aprendidas})
+                         "manuais": manuais, "aprendidas": aprendidas,
+                         "curriculo": pdfs[0].name if pdfs else None})
 
 
 async def aprender(request):

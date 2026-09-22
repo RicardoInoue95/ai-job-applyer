@@ -333,3 +333,22 @@ def test_situacao_do_perfil_diz_o_slug_e_quando_foi_lido(cliente, perfil_isolado
     assert corpo["slug"] == "fulano-teste"
     assert corpo["lido_em"] is None
     assert corpo["dias_para_reler"] >= 1
+
+
+@pytest.mark.parametrize("url, esperado", [
+    ("https://www.linkedin.com/jobs/view/4455387424/", "4455387424"),
+    ("https://www.linkedin.com/jobs/view/4455387424/?refId=abc", "4455387424"),
+    ("https://www.linkedin.com/jobs/search/?currentJobId=4455387424&keywords=dados", "4455387424"),
+    ("https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4455387424", "4455387424"),
+    # sem id não se deduz por título nem por nada
+    ("https://www.linkedin.com/jobs/search/?keywords=dados", None),
+    ("https://www.linkedin.com/in/ricardo/", None),
+    # id da Gupy não é id do LinkedIn
+    ("https://acme.gupy.io/jobs/4455387424", None),
+])
+def test_id_do_linkedin_vem_da_url_da_vaga_ou_do_currentjobid(url, esperado):
+    """O acervo guarda `/jobs/view/<id>/`; o candidato chega pelo Easy Apply
+    aberto da busca, onde o id só está em `currentJobId`."""
+    from jobapplier import api
+
+    assert api._id_linkedin(url) == esperado

@@ -58,6 +58,32 @@ chrome.runtime.onMessage.addListener((msg, remetente, responder) => {
     return false;
   }
 
+  // O PDF do currículo sob medida. Vai como base64 na mensagem: o content
+  // script não pode fazer o fetch (CSP da página), e o service worker não
+  // pode tocar no DOM. Nada é anexado aqui — quem põe no campo é o clique
+  // do candidato, em `conteudo.js`.
+  if (msg?.tipo === "curriculo") {
+    fetch(`${API}/vaga/${msg.vaga_id}/curriculo`)
+      .then(async (r) => {
+        if (!r.ok) {
+          const corpo = await r.json().catch(() => ({}));
+          const erro = new Error(corpo.erro?.titulo || `HTTP ${r.status}`);
+          erro.status = r.status;
+          throw erro;
+        }
+        const nome = (r.headers.get("content-disposition") || "")
+          .match(/filename\*?=(?:UTF-8'')?"?([^";]+)/)?.[1] || `curriculo_${msg.vaga_id}.pdf`;
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        }
+        responder({ ok: true, nome: decodeURIComponent(nome), base64: btoa(bin) });
+      })
+      .catch((e) => responder({ ok: false, erro: String(e.message), status: e.status || 0 }));
+    return true;
+  }
+
   const consulta = CONSULTAS[msg?.tipo];
   if (consulta) {
     chamar(consulta)

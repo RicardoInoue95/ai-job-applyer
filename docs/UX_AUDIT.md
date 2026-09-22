@@ -641,6 +641,13 @@ introduzidos pelas colunas novas foram medidos e corrigidos antes do fecho).
 | 14. "Excelente" | mantido (decisão do usuário) | — |
 | C. P3 | selects de diversidade empilham < 1160; multiselect sem teto em toda parte; `h2` nas seções de Configurações; page_link no ritmo de 16px (margem no contêiner); "A seguir" abaixo da descrição; filtro de status com guia (help); histórico com uma linha por vaga e "· 2×"; rodapé 160 → 64px; alertas nos tokens do produto (verde/âmbar/vermelho/índigo-suave); nav de Configurações em chips no celular (350 → 313px); "Todas" verificada (809 elegíveis, badges de status) | vários |
 
+## Extensão nas plataformas (22/09/2026)
+
+Feito depois da rodada 3, a pedido: a extensão preenche o Easy Apply do
+LinkedIn (`linkedin.com/jobs/*`, só o diálogo) e anexa o currículo feito
+para a vaga no campo de arquivo — na Gupy e no LinkedIn —, tudo no clique,
+sem enviar nem avançar. Provado por e2e com fixtures sintéticas.
+
 ## Próximos passos (D — fora desta rodada)
 
 1. **Painel da extensão abrir na vaga da aba atual** — a API já resolve o

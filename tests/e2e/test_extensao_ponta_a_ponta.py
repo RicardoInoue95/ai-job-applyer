@@ -46,6 +46,9 @@ PAGINA_PUBLICA = (
     "</body></html>"
 )
 
+PDF_MINIMO = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+              b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+
 PERGUNTA_RADIO = "Você aceita participar do teste e2e da extensão?"
 PERGUNTA_TEXTO = "Qual a cor de teste e2e da extensão?"
 
@@ -111,7 +114,15 @@ def acervo():
         aprendizado.registrar(s, PERGUNTA_RADIO, "Não", empresa=EMPRESA,
                               opcoes=["Sim", "Não"])
         aprendizado.registrar(s, PERGUNTA_TEXTO, "Azul e2e", empresa=EMPRESA)
+    # O PDF feito "para a vaga": o que se prova é que ele chega ao campo de
+    # arquivo do formulário, inteiro e com o nome certo.
+    from jobapplier import paths
+
+    paths.RESUMES.mkdir(parents=True, exist_ok=True)
+    pdf = paths.RESUMES / f"resume_e2e_{vaga_id}.pdf"
+    pdf.write_bytes(PDF_MINIMO)
     yield vaga_id
+    pdf.unlink(missing_ok=True)
     _limpar()
 
 
@@ -185,6 +196,13 @@ def test_extensao_preenche_o_formulario_da_gupy(api, acervo, navegador):
     assert "2 do banco de respostas" in aviso
     assert "1 ficaram para você" in aviso
     assert "Pergunta de teste e2e sem resposta no banco?" in aviso
+
+    # O currículo da vaga foi anexado no campo escondido — sem clique, sem
+    # abrir o seletor de arquivos do navegador.
+    assert "Currículo anexado" in aviso
+    anexado = page.evaluate("""() => { const f = document.querySelector('input[type=file]').files[0];
+        return f ? {nome: f.name, tamanho: f.size} : null; }""")
+    assert anexado == {"nome": f"resume_e2e_{acervo}.pdf", "tamanho": len(PDF_MINIMO)}
 
     # Não existe botão de enviar na fixture, e mesmo que existisse a extensão
     # não o clicaria: `tests/unit/test_extensao.py` garante isso no código.

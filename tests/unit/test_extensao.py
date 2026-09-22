@@ -144,36 +144,74 @@ def test_so_roda_em_plataforma_de_vaga():
             assert padrao != "<all_urls>"
             assert any(p in padrao for p in
                        ("gupy.io", "greenhouse.io", "lever.co", "inhire.app",
-                        "linkedin.com/in/"))
+                        "linkedin.com/in/", "linkedin.com/jobs/"))
 
 
-# ── LinkedIn: só o perfil, só leitura ────────────────────────────────────────
-# A permissão em linkedin.com existe para UMA coisa: ler o perfil do candidato
-# quando ele clica. Vaga e Easy Apply ficam fora (invariante 6), e o script de
-# preenchimento nunca é carregado lá.
+# ── LinkedIn: perfil (leitura) e Easy Apply (assistido) ──────────────────────
+# Duas permissões em linkedin.com, cada uma para uma coisa: `/in/*` lê o perfil
+# do candidato quando ele clica; `/jobs/*` preenche o Easy Apply e anexa o
+# currículo — no clique, sem enviar, sem "Avançar". A invariante 6 proíbe
+# AUTOMATIZAR o Easy Apply (e fazer login); preencher a sessão que o candidato
+# abriu é o mesmo modelo assistido da Gupy. Decisão do usuário em 22/09/2026.
 
 def _blocos_linkedin():
     return [b for b in MANIFEST["content_scripts"]
             if any("linkedin" in m for m in b["matches"])]
 
 
-def test_linkedin_so_na_pagina_de_perfil():
+def test_linkedin_so_perfil_e_vagas():
     blocos = _blocos_linkedin()
-    assert blocos, "linkedin.js não está registrado"
+    assert blocos, "linkedin não está registrado"
     for bloco in blocos:
         for padrao in bloco["matches"]:
-            assert padrao.startswith("https://www.linkedin.com/in/"), padrao
-            assert "/jobs" not in padrao
+            if "linkedin" not in padrao:
+                continue
+            assert padrao in ("https://www.linkedin.com/in/*",
+                              "https://www.linkedin.com/jobs/*"), padrao
     for host in MANIFEST["host_permissions"]:
         if "linkedin" in host:
-            assert host == "https://www.linkedin.com/in/*", host
+            assert host in ("https://www.linkedin.com/in/*",
+                            "https://www.linkedin.com/jobs/*"), host
 
 
-def test_no_linkedin_so_carrega_o_leitor_de_perfil():
-    """`conteudo.js` preenche formulário. No LinkedIn não há formulário a
-    preencher — só o Easy Apply, que fica fora por decisão."""
+def test_no_perfil_so_o_leitor_e_nas_vagas_so_o_preenchimento():
+    """`linkedin.js` (lê o perfil) nunca carrega em /jobs; `conteudo.js`
+    (preenche) nunca carrega em /in."""
     for bloco in _blocos_linkedin():
-        assert bloco["js"] == ["linkedin.js"], bloco["js"]
+        if any(m.endswith("/in/*") for m in bloco["matches"]):
+            assert bloco["js"] == ["linkedin.js"], bloco["js"]
+        if any(m.endswith("/jobs/*") for m in bloco["matches"]):
+            assert "linkedin.js" not in bloco["js"]
+            assert "conteudo.js" in bloco["js"]
+
+
+def test_no_easy_apply_le_so_o_dialogo_e_nao_avanca():
+    """A página de vagas tem busca, filtros e mensagens — todos <input>. Só o
+    diálogo do Easy Apply é formulário. E nenhum botão dele é clicado: nem
+    "Avançar", nem "Revisar", nem "Enviar candidatura"."""
+    codigo = _codigo("conteudo.js")
+    assert "raizDoFormulario" in codigo
+    assert 'div[role=dialog]' in codigo
+    for proibido in ("Avançar", "Next", "Review", "Submit application",
+                     "Enviar candidatura", "artdeco-button--primary",
+                     "aria-label=\"Continue", "footer button"):
+        assert proibido not in codigo, f"conteudo.js clica em {proibido!r}"
+
+
+def test_curriculo_entra_pelo_campo_de_arquivo_sem_clique():
+    """O PDF vai pelo `DataTransfer` + `change`, como um arrasto — não por
+    clique no botão de upload da plataforma. O único clique segue sendo o do
+    radio (`test_o_unico_clique_e_em_radio`)."""
+    codigo = _codigo("conteudo.js")
+    assert "new DataTransfer()" in codigo
+    assert "campo.files = dt.files" in codigo
+    assert 'tipo: "curriculo"' in codigo
+    # Vários campos de arquivo: só o que fala em currículo; nunca o primeiro.
+    assert "curr[i" in codigo and "resume" in codigo
+    # Quem busca o PDF é o service worker (CSP), e ele não toca no DOM.
+    fundo = _codigo("fundo.js")
+    assert "/curriculo`" in fundo
+    assert "document." not in fundo
 
 
 def test_leitor_de_perfil_nao_preenche_nem_clica():

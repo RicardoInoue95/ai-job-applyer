@@ -47,8 +47,8 @@ Nem toda plataforma merece o mesmo tratamento, e a diferença é deliberada:
 |---|---|---|
 | Greenhouse | envio automático | formulário público, sem login, sem CAPTCHA |
 | Lever | baralho, envio assistido | **hCaptcha no formulário** — medido, não suposto |
-| Gupy | baralho, envio manual | Cloudflare Turnstile no login |
-| LinkedIn | baralho, envio manual | risco de restrição da conta (invariante 6) |
+| Gupy | baralho, envio assistido pela extensão | Cloudflare Turnstile no login |
+| LinkedIn | baralho, Easy Apply assistido pela extensão | risco de restrição da conta (invariante 6) |
 | inhire | baralho, envio assistido | reCAPTCHA no formulário — medido |
 
 Onde o envio é manual, o trabalho é deixá-lo **rápido**: dossiê pronto, respostas
@@ -270,6 +270,35 @@ vive como seção de Configurações, junto com Respostas aprendidas. O corpo da
 duas mora em `ui/_documentos.py` / `ui/_respostas.py` com `render(com_cabecalho)`;
 as páginas em `pages/` são de três linhas e continuam roteáveis por URL —
 `st.navigation` não tem página escondida, então `_ui` oculta o item por CSS.
+
+### A extensão nas plataformas: preenche e anexa o currículo, no clique
+
+`extensao/conteudo.js` roda na Gupy, no Greenhouse, no Lever, na inhire e no
+**Easy Apply do LinkedIn** (`linkedin.com/jobs/*`). Em todas, o mesmo modelo:
+lê o formulário, pergunta à API, mostra o que sabe, e só escreve quando você
+clica em "Preencher tudo" — e no mesmo clique **anexa o PDF feito para a
+vaga** no campo de arquivo (`anexarCurriculo`: o service worker busca
+`/vaga/{id}/curriculo`, o content script põe no `<input type=file>` por
+`DataTransfer` + `change`, como um arrasto; nunca abre o seletor de arquivos
+nem clica em botão de upload). Com mais de um campo de arquivo, só o que fala
+em currículo/CV/resume — no campo errado é pior que não anexar.
+
+No LinkedIn a leitura é **só do diálogo** (`raizDoFormulario`: `role=dialog`);
+a página em volta tem a busca de vagas e mensagens, todos `<input>`, e a
+primeira versão os mandaria para a API como perguntas. A vaga é reconhecida
+pelo id da URL (`/jobs/view/<id>` **ou** `currentJobId=` da busca, que é por
+onde o Easy Apply costuma abrir — `api._id_linkedin`), casado com
+`fonte_vaga_id`. Nada avança nem envia: "Avançar", "Revisar" e "Enviar
+candidatura" ficam onde estão, e `tests/unit/test_extensao.py` falha se o
+código citar qualquer um deles. Isso não relaxa a invariante 6 — que proíbe
+automatizar o Easy Apply e fazer login —, é o mesmo preenchimento assistido
+da Gupy; a decisão é do usuário (22/09/2026). O leitor de perfil
+(`linkedin.js`) continua só em `/in/*` e só lê.
+
+`tests/e2e/test_extensao_linkedin_easy_apply.py` prova tudo isso contra uma
+fixture sintética do diálogo (perguntas, radio, "Upload resume", botão
+"Avançar" intocado), nas duas URLs; o teste da Gupy passou a conferir o anexo
+também.
 
 ### Preencher tudo: a extensão mostra antes, escreve no clique
 
