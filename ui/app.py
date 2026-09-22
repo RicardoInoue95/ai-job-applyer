@@ -23,7 +23,11 @@ st.set_page_config(
     page_title="AI Job Applier",
     page_icon=":material/work:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # "auto": aberta no desktop, fechada abaixo de 768px. Com "expanded" toda
+    # carga nova no celular abria a barra (300px, z 999991) por cima da
+    # página, e só depois de fechá-la uma vez a sessão a mantinha fechada —
+    # medido em 390/360 na auditoria de design.
+    initial_sidebar_state="auto",
 )
 
 _ui.aplicar()

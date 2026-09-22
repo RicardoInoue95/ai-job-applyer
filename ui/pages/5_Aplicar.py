@@ -216,7 +216,7 @@ _ui.cabecalho("Revisar", "A IA encontrou e preparou. Falta a sua decisão.")
 
 modos_disponiveis, cidades_disponiveis = opcoes_de_filtro()
 
-with st.expander("Filtros", expanded=False):
+with st.expander("Filtros", expanded=False), st.container(key="filtros-revisar"):
     f1, f2, f3, f4 = st.columns([1.1, 1, 1.2, 1])
     with f1:
         plataformas = st.multiselect(
@@ -298,7 +298,7 @@ with coluna_vaga:
         '<div class="cartao">'
         f'<div class="vaga-empresa">'
         f'{empresas.nome_exibicao(vaga["empresa"]) or vaga["empresa"] or "—"}</div>'
-        '<div class="vaga-titulo" style="font-size:1.28rem;margin:.2rem 0 .1rem">'
+        '<div class="destaque-titulo">'
         f'{_ui.titulo_limpo(vaga["titulo"]) or "—"}</div>'
         f'{meta}'
         f'<div style="margin-top:.7rem">{_ui.conclusao(vaga["aderencia"])}</div>'
@@ -354,7 +354,7 @@ with coluna_vaga:
         _ui.secao("A seguir")
         for prox in proximas:
             st.markdown(
-                "<div style='font-size:.82rem;color:var(--txt-3);padding:.1rem 0'>"
+                "<div class='meta-linha' style='padding:.1rem 0'>"
                 f"<span class='num'>{prox['score']:.0f}%</span> · "
                 f"{_ui.titulo_limpo(prox['titulo'])[:48]} — {prox['empresa'] or '—'}</div>",
                 unsafe_allow_html=True,

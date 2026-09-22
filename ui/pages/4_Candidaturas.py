@@ -95,6 +95,24 @@ _rotulo = {acompanhamento.SEM_RESPOSTA: acompanhamento.ROTULOS[None]}
 _rotulo.update({d.value: r for d, r in acompanhamento.ROTULOS.items() if d})
 
 
+def _rotulo_usuario(codigo: str) -> str:
+    """Rótulo do catálogo sem o sufixo "(legado)": ele existe para o relatório
+    do panorama separar as duas épocas (`test_todo_legado_esta_catalogado_com_rotulo`),
+    mas para quem acompanha candidaturas é vocabulário de sistema."""
+    return vocab.de_candidatura(codigo).rotulo.replace(" (legado)", "")
+
+
+def _perguntas_do_erro(texto: str) -> list[str]:
+    """`["Qual é a sua pretensão?", …]` → lista; qualquer outra coisa → []."""
+    import json
+
+    try:
+        dados = json.loads(texto)
+    except (TypeError, ValueError):
+        return []
+    return [str(q) for q in dados] if isinstance(dados, list) and dados else []
+
+
 def _marcar(vaga_id: int, chave: str) -> None:
     acompanhamento.registrar(vaga_id, st.session_state[chave])
 
@@ -134,19 +152,28 @@ _ENVIOS = ("enviada_confirmada", "revisao_manual", "falha_automacao",
            "aguardando_verificacao", "enviada", "perguntas_pendentes")
 _codigos = [s.codigo for s in vocab.CANDIDATURA]
 
+# Chaves fixas: "Limpar filtros" zera as três num clique (mesmo padrão de Vagas).
+_PADRAO_HIST = {"h_busca": "", "h_status": ENVIOS_E_ATENCAO, "h_plataforma": []}
+
+
+def _limpar_historico() -> None:
+    for chave, valor in _PADRAO_HIST.items():
+        st.session_state[chave] = valor
+
+
 f1, f2, f3 = st.columns([1.4, 1.3, 1.3])
 with f1:
     busca = st.text_input("Buscar", placeholder="Vaga ou empresa",
-                          label_visibility="collapsed")
+                          label_visibility="collapsed", key="h_busca")
 with f2:
     filtro_status = st.selectbox(
         "Status", [ENVIOS_E_ATENCAO, TODOS, *_codigos], label_visibility="collapsed",
         format_func=lambda c: c if c in (TODOS, ENVIOS_E_ATENCAO)
-        else vocab.de_candidatura(c).rotulo)
+        else _rotulo_usuario(c), key="h_status")
 with f3:
     filtro_plataforma = st.multiselect(
         "Plataforma", ["greenhouse", "gupy", "linkedin", "inhire"],
-        placeholder="Plataforma", label_visibility="collapsed")
+        placeholder="Plataforma", label_visibility="collapsed", key="h_plataforma")
 
 with get_session() as session:
     q = (session.query(Candidatura, Vaga)
@@ -176,6 +203,9 @@ with get_session() as session:
 if not registros:
     _ui.vazio("Nenhuma candidatura com esses filtros",
               "Revise as vagas em Revisar para começar.")
+    if busca or filtro_plataforma or filtro_status != ENVIOS_E_ATENCAO:
+        st.button("Limpar filtros", icon=":material/filter_alt_off:",
+                  type="tertiary", on_click=_limpar_historico)
     st.stop()
 
 st.caption(f"{len(registros)} registro{'s' if len(registros) != 1 else ''}"
@@ -191,7 +221,7 @@ st.dataframe(
             "Empresa": empresas.nome_exibicao(r["empresa"]) or (r["empresa"] or "—"),
             # Plataforma é nível 3: fica no detalhe. Na tabela, o que decide é
             # vaga, empresa, status e quando.
-            "Status": vocab.de_candidatura(r["status"]).rotulo,
+            "Status": _rotulo_usuario(r["status"]),
             "Data": r["criado_em"],
             "Abrir": r["link"] or None,
         }
@@ -218,7 +248,7 @@ with st.expander("Ver detalhes de uma candidatura"):
     )
     if escolha:
         s = vocab.de_candidatura(escolha["status"])
-        st.markdown(_ui.badge(s.rotulo, s.tom), unsafe_allow_html=True)
+        st.markdown(_ui.badge(_rotulo_usuario(s.codigo), s.tom), unsafe_allow_html=True)
         st.caption(s.descricao)
 
         d1, d2 = st.columns(2)
@@ -234,7 +264,17 @@ with st.expander("Ver detalhes de uma candidatura"):
                                use_container_width=True)
 
         if escolha["erro"]:
-            st.warning(escolha["erro"], icon=":material/warning:")
+            # O applicator grava a lista de perguntas sem resposta como JSON
+            # no campo `erro`. Para quem lê, é uma lista de perguntas — não
+            # um array com aspas e colchetes.
+            perguntas = _perguntas_do_erro(escolha["erro"])
+            if perguntas:
+                st.markdown(
+                    f"**{len(perguntas)} pergunta{'s' if len(perguntas) != 1 else ''} "
+                    f"ficara{'m' if len(perguntas) != 1 else ''} sem resposta:**\n"
+                    + "\n".join(f"- {q}" for q in perguntas))
+            else:
+                st.warning(escolha["erro"], icon=":material/warning:")
 
         if escolha["status"] in ("falha_automacao", "erro"):
             if st.button("Tentar novamente", icon=":material/refresh:",

@@ -50,11 +50,17 @@ CSS = """
     --aviso: #B54708;   --aviso-bg: #FFFAEB;   --aviso-borda: #FEDF89;
     --erro: #B42318;    --erro-bg: #FEF3F2;    --erro-borda: #FECDCA;
 
-    --raio: 10px;
+    /* Um raio de contêiner só: expander, cartão, métrica, vazio, botão e
+       input em 8px; 6px fica para badge e chip. O 10px não tinha papel
+       próprio (auditoria de design). */
+    --raio: 8px;
     --raio-p: 8px;
     --sombra: 0 1px 2px rgba(16,24,40,.04);
 
-    --txt: .95rem;
+    /* Corpo 14px, como o contrato de DESIGN_UI.md. O .95rem (15,2px) só
+       aparecia nos <p> do markdown e criava um segundo corpo ao lado dos
+       14px de todo o resto. */
+    --txt: .875rem;
     --txt-apoio: .875rem;
     --txt-meta: .8rem;
     --medida: 68ch;
@@ -106,8 +112,17 @@ CSS = """
     color: var(--acao) !important; font-weight: 600 !important;
   }
   [data-testid="stSidebarNav"] a { border-radius: var(--raio-p); }
-  [data-testid="stSidebarNav"] a:focus-visible {
+  /* O rótulo do item de navegação é um <p> de markdown e herdaria o corpo
+     (14px). A barra tem tamanho próprio, 15,2px — o que era antes de o corpo
+     descer de .95rem para .875rem; a normalização do corpo não é da barra. */
+  [data-testid="stSidebarNav"] a p { font-size: .95rem; }
+  [data-testid="stSidebarNav"] a:focus-visible,
+  [data-testid="stPageLink"] a:focus-visible {
     outline: 2px solid var(--acao); outline-offset: 2px; }
+  /* O CTA do Início é um page_link estilizado como botão: o anel é o mesmo
+     dos botões (sombra), não o outline, para não cortar o índigo. */
+  .st-key-cta [data-testid="stPageLink"] a:focus-visible {
+    outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, .45); }
 
   .marca { padding: .35rem .25rem 1rem; }
   .marca-nome { font-size: 1.02rem; font-weight: 650; color: var(--txt-1);
@@ -201,15 +216,41 @@ CSS = """
                  gap: var(--e2); align-items: baseline; padding: var(--e2) 0;
                  border-bottom: 1px solid var(--borda); }
 
-  /* Tablet: barra lateral fixa de 300px deixa 724px. Abaixo de 1280px o
-     workspace de Revisar empilha e a linha de filtros de Vagas quebra em
-     duas — em vez de coluna de 195px e rótulos com reticências. */
-  @media (max-width: 1280px) {
+  /* Tablet: barra lateral fixa de 300px deixa 724px a 1024. O ponto de
+     empilhar vem do conteúdo, não de um número redondo: a coluna "Sua
+     candidatura" precisa de ~330px (checklist em uma linha) e a da vaga de
+     ~520px (dois botões secundários lado a lado) — 880px com o gap, ou seja,
+     viewport < 1160px (880 + 300 de barra + 160 de padding). A 1280 o
+     conteúdo tem 980px e as duas colunas cabem (≈570/380): não empilha.
+     A linha de 5 filtros de Vagas precisa de ~800px: mesmo corte. A regra
+     de 3 por linha vale só no tablet — abaixo de 768px o Streamlit já põe
+     cada controle em 100%, e forçar 30% truncava "Aguardando você" a 56px
+     no celular (regressão medida na auditoria). */
+  @media (max-width: 1159px) {
     .st-key-workspace > [data-testid="stLayoutWrapper"] > .stHorizontalBlock { flex-wrap: wrap; }
     .st-key-workspace > [data-testid="stLayoutWrapper"] > .stHorizontalBlock > .stColumn {
       flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }
+  }
+  @media (min-width: 768px) and (max-width: 1159px) {
     .st-key-filtros .stHorizontalBlock { flex-wrap: wrap; }
     .st-key-filtros .stColumn { flex: 1 1 30% !important; min-width: 30% !important; }
+    /* Revisar › Filtros (4 controles) e Documentos (3): dois por linha. */
+    .st-key-filtros-revisar .stHorizontalBlock,
+    .st-key-filtros-docs .stHorizontalBlock { flex-wrap: wrap; }
+    .st-key-filtros-revisar .stColumn,
+    .st-key-filtros-docs .stColumn { flex: 1 1 45% !important; min-width: 45% !important; }
+  }
+  /* A biblioteca dentro de Configurações tem ~700px mesmo no desktop: a busca
+     ocupa a linha e os outros dois controles vêm abaixo. */
+  .st-key-filtros-docs-embutido .stHorizontalBlock { flex-wrap: wrap; }
+  .st-key-filtros-docs-embutido .stColumn { flex: 1 1 45% !important; min-width: 45% !important; }
+  .st-key-filtros-docs-embutido .stColumn:first-child { flex: 1 1 100% !important; min-width: 100% !important; }
+  @media (max-width: 767px) {
+    /* A toolbar do dataframe (colunas/CSV/busca/tela cheia) é absoluta e
+       cobria a legenda logo acima da grade; no celular ela fica sempre
+       visível, então a grade ganha espaço para ela. */
+    [data-testid="stDataFrame"] { padding-top: 36px; }
+    [data-testid="stDataFrame"] [data-testid="stElementToolbar"] { top: 2px; }
   }
 
   /* Candidaturas enviadas: uma linha por vaga, com traço entre elas. */
@@ -218,8 +259,14 @@ CSS = """
 
   /* Chips escolhidos do multiselect: valores, não ações — cinza, não índigo. */
   .stMultiSelect span[data-baseweb="tag"] {
-    background: var(--fundo); border: 1px solid var(--borda-forte); color: var(--txt-1); }
-  .stMultiSelect span[data-baseweb="tag"] span, .stMultiSelect span[data-baseweb="tag"] svg { color: var(--txt-2); fill: var(--txt-2); }
+    background: var(--fundo) !important; border: 1px solid var(--borda-forte) !important;
+    color: var(--txt-1) !important; max-width: none !important; }
+  .stMultiSelect span[data-baseweb="tag"] *,
+  .stMultiSelect span[data-baseweb="tag"] svg { color: var(--txt-1) !important; fill: var(--txt-2) !important; }
+  .stMultiSelect span[data-baseweb="tag"] [title] { max-width: none; }
+  /* Dentro dos editores "Editar (N)" a caixa não tem teto de altura: 103
+     cidades numa janela de 154px com rolagem interna não se editam. */
+  .st-key-prefs [data-baseweb="select"] > div:first-child { max-height: none !important; }
 
   /* Campo em modo resumo (Configurações): rótulo como o do Streamlit, valor
      em corpo, editor atrás de um clique. */
@@ -247,7 +294,7 @@ CSS = """
   /* ── Cartão ───────────────────────────────────────────────────────────── */
   /* Mesmo raio, borda e padding do `st.container(border=True)` protagonista
      (Início): um cartão de vaga só, em dois lugares. */
-  .cartao { background: var(--superficie); border: 1px solid rgba(71, 84, 103, .2);
+  .cartao { background: var(--superficie); border: 1px solid var(--borda-forte);
             border-radius: var(--raio-p); padding: var(--e4) var(--e5); }
 
   /* ── Métrica ──────────────────────────────────────────────────────────── */
@@ -369,24 +416,18 @@ CSS = """
     font-size: var(--txt-apoio); border-radius: var(--raio-p);
   }
   /* text_input (38px) e selectbox (40px) na mesma linha de filtros. */
-  .stTextInput div[data-baseweb="base-input"], .stTextInput input { min-height: 40px; }
+  .stTextInput div[data-baseweb="base-input"], .stTextInput input,
+  .stNumberInput div[data-baseweb="base-input"], .stNumberInput input { min-height: 40px; }
   /* Links de página no ritmo dos demais blocos (16px), não 10. */
   [data-testid="stPageLink"] { margin-top: var(--e2); }
-  /* Chips do multiselect. O Streamlit pinta o fundo com primaryColor e o
-     texto herdava o --txt-2 da regra global: cinza sobre índigo, ~1,5:1 de
-     contraste. Mesmo par do cartão em destaque, ~6,7:1. */
-  .stMultiSelect [data-baseweb="tag"] {
-    background: var(--acao-suave) !important; color: var(--acao) !important;
-    border: 1px solid #C7D2FE;
-  }
-  .stMultiSelect [data-baseweb="tag"] span, .stMultiSelect [data-baseweb="tag"] svg {
-    color: var(--acao) !important; fill: var(--acao);
-  }
+  /* (A regra antiga que pintava os chips de índigo morava aqui: era ela que
+     mantinha o texto índigo depois da primeira correção — "meio corrigido"
+     na auditoria. O chip é valor, não ação; a regra cinza está mais acima.) */
   [data-testid="stWidgetLabel"] p {
     font-size: var(--txt-meta) !important; font-weight: 600; color: var(--txt-3);
   }
   [data-testid="stExpander"] details {
-    border: 1px solid var(--borda); border-radius: var(--raio);
+    border: 1px solid var(--borda-forte); border-radius: var(--raio-p);
     background: var(--superficie);
   }
   [data-testid="stExpander"] summary { font-size: var(--txt-apoio); font-weight: 550; }

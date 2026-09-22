@@ -8,6 +8,12 @@ primaryColor = "#4F46E5"            # --acao
 backgroundColor = "#F7F8FA"         # --fundo
 secondaryBackgroundColor = "#FFFFFF" # --superficie
 textColor = "#475467"               # --txt-2
+# Uma borda só para o que é do Streamlit (container, input, select, expander,
+# dataframe): antes eram rgba(71,84,103,.2) e rgb(118,118,118) ao lado dos
+# dois cinzas dos tokens. #D0D5DD é --borda-forte; --borda (#E4E7EC) fica
+# para traços e divisores.
+borderColor = "#D0D5DD"             # --borda-forte
+baseRadius = "8px"                  # --raio
 
 [client]
 toolbarMode = "minimal"

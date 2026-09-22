@@ -72,9 +72,13 @@ def render(com_cabecalho: bool = True) -> None:
         st.error(f"Não foi possível ler os documentos: {exc}")
         return
 
-    # Mais recente primeiro: o que se reaproveita é o de ontem, não o de
-    # aderência mais baixa (a ordem anterior era crescente por score).
-    docs.sort(key=lambda d: (d["gerado_em"] is None, d["gerado_em"]), reverse=True)
+    # Mais recente primeiro, e dentro do mesmo dia, maior aderência primeiro.
+    # Só a data não bastava: 273 documentos foram gerados no mesmo minuto de
+    # 21/09, na ordem crescente de score, e a lista continuava começando em
+    # 65% (auditoria de design). O timestamp não muda; só a apresentação.
+    docs.sort(key=lambda d: (d["gerado_em"] is not None,
+                             d["gerado_em"].date() if d["gerado_em"] else None,
+                             d["score"] or 0), reverse=True)
     if not docs:
         _ui.vazio("Nenhum documento ainda",
                   "Currículos e cartas são gerados pela esteira de candidaturas. "
@@ -85,16 +89,25 @@ def render(com_cabecalho: bool = True) -> None:
     # Sem expander: a busca é a razão de a página existir, e esconder a única coisa
     # que se quer usar atrás de um clique é o oposto do ponto.
 
-    esq, meio, dir_ = st.columns([4, 2, 2])
+    # Chaves fixas para "Limpar filtros"; contêiner com chave para o CSS
+    # quebrar a linha em duas onde a coluna é estreita (Configurações, tablet).
+    _PADRAO = {"d_termo": "", "d_plataforma": "Todas as plataformas", "d_carta": False}
+
+    def _limpar() -> None:
+        for chave, valor in _PADRAO.items():
+            st.session_state[chave] = valor
+
+    with st.container(key="filtros-docs" if com_cabecalho else "filtros-docs-embutido"):
+        esq, meio, dir_ = st.columns([4, 2, 2])
     with esq:
         termo = st.text_input("Buscar", placeholder="Buscar por empresa, cargo ou id da vaga",
-                              label_visibility="collapsed")
+                              label_visibility="collapsed", key="d_termo")
     with meio:
         plataformas = sorted({d["plataforma"] for d in docs if d["plataforma"]})
         plataforma = st.selectbox("Plataforma", ["Todas as plataformas", *plataformas],
-                                  label_visibility="collapsed")
+                                  label_visibility="collapsed", key="d_plataforma")
     with dir_:
-        so_carta = st.toggle("Só com carta")
+        so_carta = st.toggle("Só com carta", key="d_carta")
 
     filtrados = [
         d for d in docs
@@ -121,16 +134,22 @@ def render(com_cabecalho: bool = True) -> None:
 
     if not filtrados:
         _ui.vazio("Nada com esse filtro", "Limpe a busca ou troque a plataforma.")
+        st.button("Limpar filtros", icon=":material/filter_alt_off:",
+                  type="tertiary", on_click=_limpar)
         return
 
     # ── Tabela ────────────────────────────────────────────────────────────────────
     # `on_select` devolve a linha clicada: a ação vive no documento escolhido, e não
     # repetida em cada uma das 590 linhas.
 
+    # Colunas em ordem de prioridade: o que decide (empresa, vaga, aderência,
+    # data) vem primeiro e cabe em ~560px; plataforma, carta e "à mão" ficam
+    # à direita, alcançáveis pela rolagem da própria grade. Antes, "medium" +
+    # "large" consumiam a largura toda e a 724px só duas colunas apareciam.
     linhas = [
         {"Empresa": d["exibicao"], "Vaga": d["titulo"],
-         "Plataforma": d["plataforma"] or "—",
          "Aderência": d["score"], "Gerado": d["gerado_em"],
+         "Plataforma": d["plataforma"] or "—",
          "Carta": bool(d["carta"]), "À mão": d["manuscrito"]}
         for d in filtrados
     ]
@@ -140,14 +159,14 @@ def render(com_cabecalho: bool = True) -> None:
         use_container_width=True, hide_index=True, height=560,
         on_select="rerun", selection_mode="single-row",
         column_config={
-            "Empresa": st.column_config.TextColumn(width="medium"),
-            "Vaga": st.column_config.TextColumn(width="large"),
-            "Plataforma": st.column_config.TextColumn(width="small"),
-            "Aderência": st.column_config.NumberColumn(format="%.0f%%", width="small"),
-            "Gerado": st.column_config.DatetimeColumn(format="DD/MM/YYYY", width="small"),
-            "Carta": st.column_config.CheckboxColumn(width="small"),
+            "Empresa": st.column_config.TextColumn(width=150),
+            "Vaga": st.column_config.TextColumn(width=260),
+            "Aderência": st.column_config.NumberColumn(format="%.0f%%", width=80),
+            "Gerado": st.column_config.DatetimeColumn(format="DD/MM/YYYY", width=95),
+            "Plataforma": st.column_config.TextColumn(width=95),
+            "Carta": st.column_config.CheckboxColumn(width=60),
             "À mão": st.column_config.CheckboxColumn(
-                width="small",
+                width=60,
                 help="Currículo escrito sob medida para aquela vaga, não gerado"),
         },
     )

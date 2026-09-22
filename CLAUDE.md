@@ -360,6 +360,7 @@ docs/
   REVISAO_FRONTEND.md      prompt de revisão de UI/UX
   REVISAO_NEGOCIO.md       prompt de revisão de produto
   DESIGN_QA.md             auditoria de UI medida com Playwright, e o antes/depois
+  DESIGN_AUDIT.md          auditoria profunda (colisão, clipping, teclado, tokens) + rodada 1
   TUTORIAL_LINKEDIN.md     passo a passo do perfil
   prompt_carreira.md       fatos profissionais — fonte única
   prompt_curriculos.md     regras de currículo por vaga
@@ -1033,6 +1034,25 @@ arquivo. As decisões que ele fixa e que já custaram retrabalho:
   escrevia "Forte alinhamento tecnológico com…" em `motivos_positivos`, e isso
   virava chip de 869px e "Forte aderência em Forte alinhamento…". Frase vira o
   `porque`, resumida.
+- **Breakpoints vêm do conteúdo, não de número redondo.** O workspace de
+  Revisar empilha abaixo de 1160px (330 + 520 + gap = 880 de conteúdo, mais
+  300 de barra e 160 de padding); a linha de 5 filtros de Vagas quebra em duas
+  no mesmo corte — e **só entre 768 e 1159**: abaixo de 768 o Streamlit já
+  empilha, e forçar 30% truncava os filtros no celular (regressão medida).
+- **Tokens que o Streamlit também obedece**: `theme.borderColor = #D0D5DD` e
+  `theme.baseRadius = 8px` no `config.toml` — sem isso container, input,
+  select e expander nativos trazem um terceiro e um quarto cinza de borda e
+  um raio de 10px que ninguém escolheu. `--txt` é 14px (corpo do contrato);
+  a barra lateral tem 15,2px por regra própria porque o rótulo do item de
+  navegação é um `<p>` de markdown e cairia junto.
+- **`initial_sidebar_state="auto"`**: com `"expanded"`, toda carga nova no
+  celular abria a barra (300px) por cima da página.
+- **Chips de multiselect são valor, não ação**: cinza. Havia duas regras para
+  `[data-baseweb=tag]` em `_ui.py` e a mais antiga (índigo) vencia a nova —
+  "meio corrigido" na auditoria. Ao mexer em chip, procure as duas.
+- **`docs/DESIGN_AUDIT.md`** tem a auditoria profunda (colisões, clipping,
+  teclado, hover, tokens derivados) e o "Implementation Round 1" com o
+  antes/depois; `data/screenshots/design-audit_antes/` é a linha de base.
 - **`kind="primaryFormSubmit"`** é o botão de formulário: a regra de botão
   primário precisa listá-lo, senão "Salvar preferências" sai com texto cinza
   sobre índigo. Medido na captura.
