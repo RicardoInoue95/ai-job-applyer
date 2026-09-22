@@ -24,7 +24,7 @@ from jobapplier.config.manager import ConfigManager
 config = ConfigManager()
 
 try:
-    from jobapplier import aderencia, empresas, paths
+    from jobapplier import aderencia, empresas, paths, tempo
     from jobapplier import ficha as mod_ficha
     from jobapplier import fila as fila_mod
     from jobapplier.database.connection import get_session
@@ -76,6 +76,7 @@ def carregar_fila(plataformas: tuple, score_min: int, modalidades: tuple,
             "plataforma": v.plataforma, "link": v.link, "score": v.score or 0,
             "localizacao": v.localizacao, "modalidade": v.modalidade,
             "status": v.status, "descricao": v.descricao,
+            "criado_em": v.criado_em, "ultima_coleta_em": v.ultima_coleta_em,
             "normalizado_json": v.normalizado_json,
             "breakdown": v.score_breakdown_json,
         })
@@ -311,6 +312,32 @@ with coluna_vaga:
         f"<span>{modo}</span>" if modo else "",
         f"<span>{senioridade}</span>" if senioridade else "",
     )
+
+    # O que se quer saber ANTES de abrir o site: há quanto tempo a vaga existe,
+    # quando foi vista pela última vez na plataforma, e quantas perguntas do
+    # formulário vão ficar para você (a Gupy pedindo nome da mãe é surpresa
+    # ruim depois de abrir). A ficha é cacheada; lê-la aqui não custa duas
+    # vezes.
+    with st.spinner("Lendo o formulário da vaga…"):
+        f = carregar_ficha(vaga["id"])
+    avisos = []
+    agora = tempo.agora_utc()
+    if vaga["criado_em"]:
+        dias = (agora - vaga["criado_em"]).days
+        avisos.append("coletada hoje" if dias == 0 else f"coletada há {dias} dia{'s' if dias != 1 else ''}")
+    if vaga["ultima_coleta_em"]:
+        horas = int((agora - vaga["ultima_coleta_em"]).total_seconds() // 3600)
+        avisos.append("ainda no ar há menos de 1h" if horas < 1
+                      else f"ainda no ar há {horas}h" if horas < 48
+                      else f"vista no ar há {horas // 24} dias")
+    if f["situacao"] == "ok" and f["itens"]:
+        suas = f["total"] - f["respondidas"]
+        if suas:
+            avisos.append(f"{suas} pergunta{'s' if suas != 1 else ''} do formulário fica{'m' if suas != 1 else ''} para você")
+        else:
+            avisos.append("formulário todo respondido")
+    antes = ('<div class="meta-linha" style="margin-top:var(--e2)">' + " · ".join(avisos) + "</div>") if avisos else ""
+
     st.markdown(
         '<div class="cartao">'
         f'<div class="vaga-empresa">'
@@ -319,6 +346,7 @@ with coluna_vaga:
         f'{_ui.titulo_limpo(vaga["titulo"]) or "—"}</div>'
         f'{meta}'
         f'<div style="margin-top:.7rem">{_ui.conclusao(vaga["aderencia"])}</div>'
+        f'{antes}'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -347,14 +375,19 @@ with coluna_vaga:
     st.link_button("Abrir candidatura", vaga["link"] or "#",
                    icon=":material/open_in_new:", type="primary",
                    use_container_width=True)
-    b1, b2 = st.columns(2)
+    # "Já me candidatei" largo; descartar é um ícone pequeno ao lado — decisão
+    # de produto: não compete de igual para igual com a ação frequente, e o
+    # rótulo continua no DOM (o CSS só esconde o texto) para leitor de tela e
+    # para o tooltip.
+    b1, b2 = st.columns([5, 1])
     with b1:
         if st.button("Já me candidatei", icon=":material/check:",
                      use_container_width=True):
             decidir_e_avisar(vaga, "enviada_manual")
             st.rerun()
-    with b2:
+    with b2, st.container(key="descartar"):
         if st.button("Não tenho interesse", icon=":material/close:",
+                     help="Não tenho interesse — tira a vaga da fila (dá para desfazer)",
                      use_container_width=True):
             decidir_e_avisar(vaga, "descartada_por_voce")
             st.rerun()
@@ -397,8 +430,7 @@ with coluna_apoio, st.container(key="lado"):
     # fica atrás de um clique: é nível 2, e aberto por padrão ocupava metade
     # da coluna com um texto que se lê uma vez.
     _ui.secao("Sua candidatura")
-    with st.spinner("Lendo o formulário da vaga…"):
-        f = carregar_ficha(vaga["id"])
+    f = carregar_ficha(vaga["id"])   # cacheada: lida no cartão
 
     linhas_check = []
     linhas_check.append(("Currículo", bool(pdf),

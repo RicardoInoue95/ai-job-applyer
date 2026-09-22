@@ -109,6 +109,12 @@ CANDIDATURA: tuple[Status, ...] = (
            "aviso"),
     Status("simulada", "Preparada, não enviada",
            "Preparada e deliberadamente não enviada", "processando"),
+    # Fechada em lote por decisão do usuário (scripts/arquivar_legados.py):
+    # registros de uma época anterior do produto que ninguém ia resolver e
+    # apareciam misturados aos envios reais. Fica fora de "Envios e atenção".
+    Status("arquivada", "Arquivada",
+           "Registro antigo fechado em lote; o original está em data/arquivamento_*.json",
+           "concluida", "neutro"),
     # Legados: só leitura de linhas antigas do banco.
     Status("enviada", "Enviada (legado)", "Registro anterior à mudança de vocabulário",
            "concluida", "bom"),

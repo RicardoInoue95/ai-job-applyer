@@ -40,6 +40,9 @@ def _carregar():
         {"vaga_id": d.vaga_id, "empresa": d.empresa, "titulo": d.titulo,
          "plataforma": d.plataforma or "", "score": d.score, "perfil": d.perfil,
          "gerado_em": d.gerado_em, "manuscrito": d.manuscrito,
+         # "enviado" = a vaga está em status de envio: é a pergunta "qual
+         # currículo eu mandei para a Stone?", que a tabela não respondia.
+         "enviado": d.status_vaga in ("candidatada", "enviada_manual"),
          "exibicao": empresas.nome_exibicao(d.empresa) or d.empresa,
          "curriculo": str(d.curriculo) if d.curriculo else "",
          "carta": str(d.carta) if d.carta else ""}
@@ -91,7 +94,9 @@ def render(com_cabecalho: bool = True) -> None:
 
     # Chaves fixas para "Limpar filtros"; contêiner com chave para o CSS
     # quebrar a linha em duas onde a coluna é estreita (Configurações, tablet).
-    _PADRAO = {"d_termo": "", "d_plataforma": "Todas as plataformas", "d_carta": False}
+    _PADRAO = {"d_termo": "", "d_plataforma": "Todas as plataformas", "d_carta": False,
+               "d_atalho": None}
+    _ATALHOS = ["Todos", "Enviados", "Melhores", "Escritos à mão"]
 
     def _limpar() -> None:
         for chave, valor in _PADRAO.items():
@@ -108,11 +113,25 @@ def render(com_cabecalho: bool = True) -> None:
                                   label_visibility="collapsed", key="d_plataforma")
     with dir_:
         so_carta = st.toggle("Só com carta", key="d_carta")
+    # Atalhos: os três jeitos de a pessoa procurar sem saber o nome — o que já
+    # mandou, os melhores para reaproveitar, os que escreveu à mão.
+    atalho = st.pills("Atalhos", _ATALHOS, default=None, key="d_atalho",
+                      label_visibility="collapsed") or "Todos"
+
+    def _passa_atalho(d) -> bool:
+        if atalho == "Enviados":
+            return d["enviado"]
+        if atalho == "Melhores":
+            return (d["score"] or 0) >= 85
+        if atalho == "Escritos à mão":
+            return d["manuscrito"]
+        return True
 
     filtrados = [
         d for d in docs
         if (plataforma.startswith("Todas") or d["plataforma"] == plataforma)
         and (not so_carta or d["carta"])
+        and _passa_atalho(d)
     ]
     if termo.strip():
         def _normal(t):
@@ -146,11 +165,14 @@ def render(com_cabecalho: bool = True) -> None:
     # data) vem primeiro e cabe em ~560px; plataforma, carta e "à mão" ficam
     # à direita, alcançáveis pela rolagem da própria grade. Antes, "medium" +
     # "large" consumiam a largura toda e a 724px só duas colunas apareciam.
+    # Plataforma, carta e "à mão" saíram da tabela: plataforma está no
+    # detalhe, carta é o toggle, "à mão" é atalho. Entram Perfil e Enviado —
+    # o que distingue um currículo do outro.
     linhas = [
         {"Empresa": d["exibicao"], "Vaga": d["titulo"],
+         "Perfil": (d["perfil"] or "—").replace("_", " "),
          "Aderência": d["score"], "Gerado": d["gerado_em"],
-         "Plataforma": d["plataforma"] or "—",
-         "Carta": bool(d["carta"]), "À mão": d["manuscrito"]}
+         "Enviado": d["enviado"]}
         for d in filtrados
     ]
 
@@ -164,15 +186,14 @@ def render(com_cabecalho: bool = True) -> None:
         use_container_width=True, hide_index=True, height=560,
         on_select="rerun", selection_mode="single-row",
         column_config={
-            "Empresa": st.column_config.TextColumn(width=150),
-            "Vaga": st.column_config.TextColumn(width=260),
+            "Empresa": st.column_config.TextColumn(width=140),
+            "Vaga": st.column_config.TextColumn(width=240),
+            "Perfil": st.column_config.TextColumn(width=110,
+                                                  help="Ênfase do currículo gerado para a vaga"),
             "Aderência": st.column_config.NumberColumn(format="%.0f%%", width=80),
             "Gerado": st.column_config.DatetimeColumn(format="DD/MM/YYYY", width=95),
-            "Plataforma": st.column_config.TextColumn(width=95),
-            "Carta": st.column_config.CheckboxColumn(width=60),
-            "À mão": st.column_config.CheckboxColumn(
-                width=60,
-                help="Currículo escrito sob medida para aquela vaga, não gerado"),
+            "Enviado": st.column_config.CheckboxColumn(
+                width=70, help="A vaga está marcada como enviada"),
         },
     )
 

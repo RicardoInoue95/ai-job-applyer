@@ -612,3 +612,43 @@ frequente — fica para decisão).
 
 Suíte: `ruff` limpo; `pytest` verde exceto os dois testes de prompt
 (pretensão salarial — decisão pendente).
+
+
+---
+
+# IMPLEMENTATION ROUND 3 — 22/09/2026 (as decisões de produto)
+
+O usuário fechou as 12 decisões e os P3. Implementado e validado (suíte
+unit + e2e verde, incluindo os dois testes de prompt; auditoria visual em
+1440/1024/390 sem colisão, overflow ou exceção; dois truncamentos de tablet
+introduzidos pelas colunas novas foram medidos e corrigidos antes do fecho).
+
+| Decisão | O que foi feito | Onde |
+|---|---|---|
+| 1. "Mostrar mais" de 25 em 25 | lista começa em 25; botão "Mostrar mais 25 (25 de 340)" sobe o limite; "Limpar filtros" volta a 25 | `3_Vagas.py` |
+| 2. Ordenação à escolha | selectbox "Maior aderência / Mais recentes" ao lado da contagem; a legenda diz o critério | `3_Vagas.py` |
+| 3. Candidaturas por mês | "O que aconteceu com cada uma" agrupado em expanders por mês de envio ("Agosto de 2026 · 1 enviada · 1 sem resposta"), o mais recente aberto | `4_Candidaturas.py` |
+| 4. Legados arquivados em lote | status novo `arquivada` (catálogo); `scripts/arquivar_legados.py --aplicar` fechou 283 registros (165 perguntas pendentes + 118 erro, anteriores a 09/2026); status anteriores em `data/arquivamento_20260922.json`, `--desfazer` reverte. Histórico padrão: 300 → 15 registros | `status.py`, `scripts/` |
+| 5. Configurações: ajustar / operar / consultar | nav em três grupos com rótulo; seções novas **Dados pessoais** e **Pretensão** (blocos que eram o 2º e 3º formulário de Preferências); Greenhouse foi para **Plataformas**; os cortes de aderência foram para **Automação** ("Envio automático a partir de" / "Entra na fila a partir de") — e a correção de um bug: o slider antigo "Autoaprovação" gravava `threshold_excelente` (corte da fila) com mínimo 70 e o salvar apagava `threshold_auto`; títulos de seção como `h2` sem âncora | `1_Setup.py`, `_ui.py` |
+| 6. Pretensão: a faixa é a fonte | campo simples (R$ 8.000) removido da tela e de `config.json`; `pretensao` = 10.000 / 13.000 / 16.000 × 1,3, igual ao prompt; `test_prompts.py` volta a passar | `1_Setup.py`, `data/config.json` |
+| 7. Chips em slugs e queries | Plataformas (Greenhouse, Gupy, palavras-chave) e LinkedIn (buscas) usam o mesmo resumo + "Editar (N)" de Preferências; um "Salvar plataformas" | `1_Setup.py` |
+| 8. Documentos: colunas e atalhos | colunas **Perfil** e **Enviado** (Plataforma/Carta/À mão saem: estão no detalhe, no toggle e no atalho); pills "Enviados · Melhores (≥ 85%) · Escritos à mão" | `_documentos.py` |
+| 9. Busca por tecnologia | a busca de Vagas também casa com `normalizado_json` ("databricks" → 79) | `3_Vagas.py` |
+| 10. Tabela no celular | seis colunas com larguras numéricas (140/240/110/80/95/70): tablet mostra as quatro que decidem; a 390 continuam duas com rolagem da grade — sem representação alternativa (fica em D) | `_documentos.py` |
+| 11. "Não tenho interesse" como ícone | botão-ícone (×, 85px) ao lado de "Já me candidatei" largo; o texto fica no DOM (nome acessível + tooltip), só escondido | `5_Aplicar.py`, `_ui.py` |
+| 12. Antes de abrir | linha no cartão: "coletada há 35 dias · vista no ar há 5 dias · N perguntas do formulário ficam para você / formulário todo respondido" | `5_Aplicar.py` |
+| 13. CPF/RG | `type="password"` — o campo traz o botão "mostrar" e continua editável | `1_Setup.py` |
+| 14. "Excelente" | mantido (decisão do usuário) | — |
+| C. P3 | selects de diversidade empilham < 1160; multiselect sem teto em toda parte; `h2` nas seções de Configurações; page_link no ritmo de 16px (margem no contêiner); "A seguir" abaixo da descrição; filtro de status com guia (help); histórico com uma linha por vaga e "· 2×"; rodapé 160 → 64px; alertas nos tokens do produto (verde/âmbar/vermelho/índigo-suave); nav de Configurações em chips no celular (350 → 313px); "Todas" verificada (809 elegíveis, badges de status) | vários |
+
+## Próximos passos (D — fora desta rodada)
+
+1. **Painel da extensão abrir na vaga da aba atual** — a API já resolve o
+   vínculo por aba; falta o painel pedir.
+2. **Sugerir respostas a partir do currículo** para perguntas sem resposta
+   aprendida — precisa de desenho que respeite a invariante 3.
+3. **Leitura de e-mail para o funil** (`desfecho.py`).
+4. **Enviar os dossiês do lote de set/2026** — Revisar mostra os 42.
+5. Representação mobile da tabela de Documentos (hoje 2 colunas + rolagem).
+6. Dívidas já registradas no CLAUDE.md: Lever, senioridade no 4B,
+   `screenshots_path`, CI, Dockerfile, `structlog`, Fase 1.

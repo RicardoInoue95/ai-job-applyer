@@ -83,7 +83,8 @@ CSS = """
      o título de toda página ficava cortado embaixo dele. Ele ganha o fundo da
      página e o container começa abaixo dele. */
   [data-testid="stHeader"] { background: var(--fundo); }
-  [data-testid="stMainBlockContainer"] { padding-top: 3.75rem; max-width: 1180px; }
+  /* Rodapé de 160px era 19% da tela do celular sem nada dentro. */
+  [data-testid="stMainBlockContainer"] { padding-top: 3.75rem; padding-bottom: 4rem; max-width: 1180px; }
 
   /* ── Tipografia ───────────────────────────────────────────────────────── */
   html, body, [class*="st-"] { color: var(--txt-2); }
@@ -253,6 +254,11 @@ CSS = """
     [data-testid="stDataFrame"] [data-testid="stElementToolbar"] { top: 2px; }
   }
 
+  /* "Não tenho interesse" como ícone: o texto fica no DOM (nome acessível e
+     tooltip), só não aparece. */
+  .st-key-descartar button p { display: none; }
+  .st-key-descartar button { min-width: 40px; }
+
   /* Carta em leitura: era text_area (parecia editável; nada salvava). */
   .carta-leitura { background: var(--superficie); border: 1px solid var(--borda-forte);
                    border-radius: var(--raio-p); padding: var(--e4) var(--e5);
@@ -291,8 +297,13 @@ CSS = """
           margin: var(--e2) 0 var(--e4); max-width: var(--medida); }
   .lede b { color: var(--txt-1); }
   /* Cargo em destaque no cartão protagonista: H2 do contrato. */
-  .destaque-titulo { font-size: 1.3rem; font-weight: 650; color: var(--txt-1);
-                     line-height: 1.25; margin: var(--e1) 0 var(--e1); }
+  .destaque-titulo,
+  [data-testid="stMarkdownContainer"] h2.destaque-titulo,
+  [data-testid="stMarkdownContainer"] h3.destaque-titulo {
+    font-size: 1.3rem; font-weight: 650; color: var(--txt-1);
+    line-height: 1.25; margin: var(--e1) 0 var(--e1); padding: 0; }
+  [data-testid="stMarkdownContainer"] h2.destaque-titulo a,
+  [data-testid="stMarkdownContainer"] h3.destaque-titulo a { display: none; }
   /* Links do markdown na cor de ação, não no azul padrão do Streamlit:
      um azul só na paleta. */
   [data-testid="stMarkdownContainer"] a { color: var(--acao); }
@@ -430,8 +441,40 @@ CSS = """
   /* text_input (38px) e selectbox (40px) na mesma linha de filtros. */
   .stTextInput div[data-baseweb="base-input"], .stTextInput input,
   .stNumberInput div[data-baseweb="base-input"], .stNumberInput input { min-height: 40px; }
-  /* Links de página no ritmo dos demais blocos (16px), não 10. */
-  [data-testid="stPageLink"] { margin-top: var(--e2); }
+  /* Links de página no ritmo dos demais blocos (16px), não 10: a margem
+     precisa estar no contêiner do elemento, não no link. */
+  [data-testid="stElementContainer"]:has(> [data-testid="stPageLink"]) { margin-top: var(--e2); }
+  .st-key-cta [data-testid="stElementContainer"]:has(> [data-testid="stPageLink"]),
+  .st-key-proximo [data-testid="stElementContainer"]:has(> [data-testid="stPageLink"]) { margin-top: 0; }
+
+  /* Alertas nos tokens do produto (o Streamlit usa verde/amarelo próprios). */
+  [data-testid="stAlertContainer"] { border-radius: var(--raio-p) !important; border: 1px solid transparent; }
+  [data-testid="stAlertContainer"]:has([data-testid="stAlertContentSuccess"]) {
+    background: var(--ok-bg) !important; border-color: var(--ok-borda); color: var(--ok); }
+  [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) {
+    background: var(--aviso-bg) !important; border-color: var(--aviso-borda); color: var(--aviso); }
+  [data-testid="stAlertContainer"]:has([data-testid="stAlertContentError"]) {
+    background: var(--erro-bg) !important; border-color: var(--erro-borda); color: var(--erro); }
+  [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) {
+    background: var(--acao-suave) !important; border-color: #C7D2FE; color: var(--txt-1); }
+  [data-testid="stAlertContainer"] p { color: inherit; }
+
+  /* Nenhum multiselect com teto de altura e rolagem interna. */
+  .stMultiSelect [data-baseweb="select"] > div:first-child { max-height: none !important; }
+
+  @media (max-width: 767px) {
+    /* Nav de Configurações: nove itens em coluna eram 350px antes do conteúdo;
+       no celular viram chips em linha. */
+    .st-key-nav-config [role="radiogroup"] { flex-direction: row !important; flex-wrap: wrap; gap: var(--e1) !important; }
+    .st-key-nav-config [data-testid="stRadio"] label[data-baseweb="radio"] {
+      border: 1px solid var(--borda-forte); padding: var(--e1) var(--e3); }
+    .st-key-nav-config .sec { margin: var(--e2) 0 var(--e1) !important; }
+  }
+  @media (max-width: 1159px) {
+    /* Autodeclaração em três colunas truncava a 57px no tablet. */
+    .st-key-diversidade .stHorizontalBlock { flex-wrap: wrap; }
+    .st-key-diversidade .stColumn { flex: 1 1 100% !important; min-width: 100% !important; }
+  }
   /* (A regra antiga que pintava os chips de índigo morava aqui: era ela que
      mantinha o texto índigo depois da primeira correção — "meio corrigido"
      na auditoria. O chip é valor, não ação; a regra cinza está mais acima.) */

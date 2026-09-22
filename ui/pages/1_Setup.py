@@ -86,6 +86,12 @@ def _render_progress(current: int):
     st.divider()
 
 
+def _titulo(texto: str) -> None:
+    """Título de seção como h2 de verdade, com o CSS do produto — `####` dava
+    um h4 (16px, com âncora focável e invisível) fora da hierarquia h1 → h2."""
+    st.markdown(f'<h2 class="destaque-titulo">{texto}</h2>', unsafe_allow_html=True)
+
+
 def _no_assistente() -> bool:
     """Os botões Voltar/Avançar/Pular só existem no assistente. No modo
     ajuste cada seção salva sozinha, e "Avançar" em índigo ao lado de
@@ -125,7 +131,7 @@ def step_1():
         testar_conexao,
     )
 
-    st.markdown("#### Provedor de IA")
+    _titulo("Provedor de IA")
     st.markdown(
         "Escolha qual API usará para normalizar vagas, pontuar aderência, "
         "otimizar currículo e gerar cover letters. Você pode trocar depois sem "
@@ -214,7 +220,7 @@ def step_1():
 # ── Etapa 2: Upload de Currículo ─────────────────────────────────────────────
 
 def step_2():
-    st.markdown("#### Currículo")
+    _titulo("Currículo")
     st.markdown("Envie seu currículo em **PDF** ou **DOCX**. Ele será analisado e convertido para JSON.")
 
     from jobapplier.llm import provedores_configurados
@@ -414,12 +420,29 @@ def _descobrir_empresas(setores: str, cargos: str, api_key: str | None = None) -
     return {"greenhouse": greenhouse, "lever": [], "validos": validos, "invalidos": invalidos}
 
 
-def step_3():
-    st.markdown("#### Preferências de busca")
-    st.markdown("Configure os critérios de busca e as empresas que serão monitoradas.")
-    if not _no_assistente():
-        st.caption("Esta seção tem três blocos — busca, dados pessoais e pretensão — "
-                   "e cada um salva com o próprio botão.")
+# Resumo + "Editar", não a lista inteira em chips: 103 cidades em tags
+# transformam a tela num gerenciador de etiquetas. Lê-se os primeiros e
+# "+ 96 outras"; quem quer mexer abre o editor. Dentro dele, chips com
+# `accept_new_options` — digitar um valor novo e Enter o acrescenta.
+def _chips(rotulo, valores, chave, ajuda=None, mostrar=5, ocultar_no_resumo=()):
+    valores = list(valores)
+    # "Remoto"/"Remote"/"Brasil" ficam na lista por compatibilidade
+    # (`locais_alvo()` os descarta), mas num resumo de "cidades" mentem.
+    visiveis = [v for v in valores if v not in ocultar_no_resumo]
+    resto = len(visiveis) - mostrar
+    resumo = ", ".join(visiveis[:mostrar]) + (f" e mais {resto}" if resto > 0 else "")
+    st.markdown(f'<div class="rotulo-campo">{rotulo}</div>'
+                f'<div class="resumo-campo">{resumo or "—"}</div>',
+                unsafe_allow_html=True)
+    with st.expander(f"Editar ({len(valores)})"):
+        return st.multiselect(rotulo, options=valores, default=valores, key=chave,
+                              accept_new_options=True, placeholder="Digite e Enter",
+                              help=ajuda, label_visibility="collapsed")
+
+
+def _bloco_busca():
+    _titulo("Preferências de busca")
+    st.markdown("Cargos, cidades e modalidade que a coleta procura.")
 
     saved = config.get("coleta") or {}
 
@@ -492,25 +515,6 @@ def step_3():
     # ── Formulário de preferências ────────────────────────────────────────────
     saved = config.get("coleta") or {}
 
-    # Resumo + "Editar", não a lista inteira em chips: 103 cidades em tags
-    # transformam a tela num gerenciador de etiquetas. Lê-se os primeiros e
-    # "+ 96 outras"; quem quer mexer abre o editor. Dentro dele, chips com
-    # `accept_new_options` — digitar um valor novo e Enter o acrescenta.
-    def _chips(rotulo, valores, chave, ajuda=None, mostrar=5, ocultar_no_resumo=()):
-        valores = list(valores)
-        # "Remoto"/"Remote"/"Brasil" ficam na lista por compatibilidade
-        # (`locais_alvo()` os descarta), mas num resumo de "cidades" mentem.
-        visiveis = [v for v in valores if v not in ocultar_no_resumo]
-        resto = len(visiveis) - mostrar
-        resumo = ", ".join(visiveis[:mostrar]) + (f" e mais {resto}" if resto > 0 else "")
-        st.markdown(f'<div class="rotulo-campo">{rotulo}</div>'
-                    f'<div class="resumo-campo">{resumo or "—"}</div>',
-                    unsafe_allow_html=True)
-        with st.expander(f"Editar ({len(valores)})"):
-            return st.multiselect(rotulo, options=valores, default=valores, key=chave,
-                                  accept_new_options=True, placeholder="Digite e Enter",
-                                  help=ajuda, label_visibility="collapsed")
-
     with st.container(key="prefs"), st.form("prefs_form"):
         cargos = _chips("Cargos de interesse",
                         saved.get("cargos_alvo", ["Data Engineer", "Analytics Engineer",
@@ -534,20 +538,8 @@ def step_3():
                 ),
             )
 
-        # Guardado como texto (é o que o prompt de candidatura e o Greenhouse
-        # leem); na tela, número com prefixo — "8000" solto não se lê como
-        # dinheiro.
-        salario_salvo = "".join(ch for ch in str(saved.get("salario_esperado", ""))
-                                if ch.isdigit())
-        c_sal, _ = st.columns([1, 2])
-        with c_sal:
-            salario_num = st.number_input(
-                "Pretensão salarial mínima (R$ por mês)",
-                min_value=0, step=500, value=int(salario_salvo or 0), format="%d",
-            )
-            if salario_num:
-                st.caption(f"R$ {salario_num:,.0f} / mês".replace(",", "."))
-        salario = str(salario_num) if salario_num else ""
+        # A pretensão salarial mora na seção "Pretensão" (a faixa é a fonte —
+        # havia um segundo campo aqui, com outro valor, e os dois discordavam).
 
         # O que muda raramente fica atrás de um clique; o formulário abre no
         # que muda — cargo, cidade, pretensão.
@@ -559,64 +551,34 @@ def step_3():
                 ajuda="Vagas com essas palavras no título são ignoradas antes de "
                       "qualquer análise.")
 
-            st.markdown("**Faixas de aderência (0 a 100)**")
-            saved_scoring = config.get("scoring") or {}
-            col_s1, col_s2 = st.columns(2)
-            with col_s1:
-                threshold_excelente = st.slider(
-                    "Autoaprovação (score ≥)",
-                    min_value=70, max_value=100,
-                    value=int(saved_scoring.get("threshold_excelente", 85)),
-                    help="Vagas acima deste score são aprovadas automaticamente",
-                )
-            with col_s2:
-                threshold_bom = st.slider(
-                    "Revisão manual (score ≥)",
-                    min_value=50, max_value=99,
-                    value=int(saved_scoring.get("threshold_bom", 70)),
-                    help="Vagas neste range entram na fila de aprovação manual",
-                )
-
-        with st.expander(f"Empresas monitoradas no Greenhouse "
-                         f"({len(saved.get('empresas_greenhouse', []))})"):
-            greenhouse_raw = st.text_area(
-                "Slugs, um por linha",
-                value="\n".join(saved.get("empresas_greenhouse", [])),
-                height=160,
-                help="Preenchido automaticamente pela descoberta acima, ou adicione manualmente",
-            )
-            st.caption("Lever: sondagem de 22 slugs devolveu 2 vagas aderentes; "
-                       "a coleta fica desligada até valer a pena.")
-        lever_raw = "\n".join(saved.get("empresas_lever", []))
+        # Os cortes de aderência moram em Automação (é o envio automático que
+        # eles governam) e as empresas do Greenhouse em Plataformas.
 
         submitted = st.form_submit_button("Salvar preferências", type="primary")
 
     if submitted:
-        prefs = {
+        cfg = config.load()
+        # Só as chaves desta tela: empresas e palavras-chave por plataforma são
+        # de Plataformas/LinkedIn, e sobrescrever `coleta` inteiro as apagava.
+        cfg.setdefault("coleta", {}).update({
             "cargos_alvo": [c.strip() for c in cargos if c.strip()],
             "localizacoes_alvo": [loc.strip() for loc in localizacoes if loc.strip()],
             "modalidade_preferida": modalidade,
-            "salario_esperado": salario.strip(),
             "palavras_bloqueadas": [p.strip() for p in palavras_bloqueadas if p.strip()],
-            "empresas_greenhouse": [s.strip() for s in greenhouse_raw.splitlines() if s.strip()],
-            "empresas_lever": [s.strip() for s in lever_raw.splitlines() if s.strip()],
-            "setores_interesse": saved.get("setores_interesse", ""),
-        }
-        cfg = config.load()
-        cfg["coleta"] = prefs
-        cfg["scoring"] = {
-            "threshold_excelente": threshold_excelente,
-            "threshold_bom": threshold_bom,
-        }
+        })
         config.save(cfg)
         st.success("✓ Preferências salvas!")
         st.session_state["prefs_ok"] = True
 
-    # ── Dados pessoais para candidaturas ─────────────────────────────────────
 
-    st.divider()
-    st.markdown("**Dados pessoais para candidaturas automáticas**")
-    st.caption("Informações usadas para preencher formulários de candidatura (ex: CPF obrigatório na XP Inc).")
+
+def _bloco_dados_pessoais():
+    """CPF, RG, filiação e autodeclaração: o que os formulários pedem e o
+    sistema não inventa. Era o segundo formulário de Preferências; é seção
+    própria porque não é preferência de busca."""
+    _titulo("Dados pessoais")
+    st.caption("Usados para preencher formulários de candidatura (ex.: CPF obrigatório na XP Inc). "
+               "Em branco, a pergunta fica para você.")
 
     saved_pessoais = config.get("dados_pessoais") or {}
 
@@ -628,9 +590,11 @@ def step_3():
         return opcoes.index(valor) if valor in opcoes else 0
 
     with st.form("dados_pessoais_form"):
+        # Documento em texto claro vazava em qualquer captura; o campo de
+        # senha traz o botão "mostrar" e o valor continua editável.
         cpf = st.text_input(
             "CPF (somente números)",
-            value=saved_pessoais.get("cpf", ""),
+            value=saved_pessoais.get("cpf", ""), type="password",
             placeholder="00000000000",
             help="Obrigatório em candidaturas XP Inc e outras empresas",
         )
@@ -642,7 +606,7 @@ def step_3():
         )
         col_doc1, col_doc2 = st.columns(2)
         with col_doc1:
-            rg = st.text_input("RG", value=saved_pessoais.get("rg", ""))
+            rg = st.text_input("RG", value=saved_pessoais.get("rg", ""), type="password")
             nome_mae = st.text_input("Nome da mãe",
                                      value=saved_pessoais.get("nome_mae", ""))
             naturalidade = st.text_input(
@@ -659,7 +623,8 @@ def step_3():
             nome_pai = st.text_input("Nome do pai",
                                      value=saved_pessoais.get("nome_pai", ""))
         st.markdown("**Autodeclaração de diversidade** — campos opcionais, usados quando exigidos pelo formulário")
-        col_d1, col_d2, col_d3 = st.columns(3)
+        with st.container(key="diversidade"):
+            col_d1, col_d2, col_d3 = st.columns(3)
         with col_d1:
             genero = st.selectbox(
                 "Identidade de gênero",
@@ -698,12 +663,13 @@ def step_3():
             st.success("✓ Dados pessoais salvos!")
             st.session_state["pessoais_ok"] = True
 
-    # ── Pretensão salarial ───────────────────────────────────────────────────
-    # Estava só no config.json, sem nenhum caminho pela interface. É o único
-    # campo que o sistema escreve em formulário e o usuário não conseguia
-    # revisar — e ele muda com o tempo, ao contrário de CPF.
-    st.divider()
-    st.markdown("**Pretensão salarial**")
+
+
+def _bloco_pretensao():
+    """A faixa é a fonte única da pretensão: o prompt de candidatura, o
+    `salario.responder` e os formulários leem daqui. Havia um segundo campo
+    ("mínima", R$ 8.000) em Preferências que discordava dela."""
+    _titulo("Pretensão salarial")
     st.caption("Campo de salário vazio lê como evasivo em triagem automática. "
                "Quando o formulário pede um valor só, o sistema usa o topo — o "
                "número declarado vira o teto da negociação, nunca o piso.")
@@ -744,19 +710,28 @@ def step_3():
                 config.save(cfg)
                 st.success("✓ Pretensão salva!")
 
+
+def step_3():
+    """Etapa 3 do assistente: os três blocos numa página. No modo ajuste cada
+    um é uma seção da navegação."""
+    _bloco_busca()
+    st.divider()
+    _bloco_dados_pessoais()
+    st.divider()
+    _bloco_pretensao()
     if _no_assistente():
         col1, col2 = st.columns(2)
         with col1:
             st.button("Voltar", on_click=_back, args=(3,))
         with col2:
-            if st.session_state.get("prefs_ok") or saved:
+            if st.session_state.get("prefs_ok") or config.get("coleta"):
                 st.button("Avançar", on_click=_advance, args=(3,), type="primary")
 
 
 # ── Etapa 4: LinkedIn ────────────────────────────────────────────────────────
 
 def step_4():
-    st.markdown("#### LinkedIn")
+    _titulo("LinkedIn")
     # Copy honesta: a sessão serve para COLETAR vagas e ler o seu perfil; o
     # envio no LinkedIn é seu (invariante 6). A versão anterior prometia
     # "automatizar o Easy Apply (até 10 vagas/dia)" — o que o produto,
@@ -829,18 +804,15 @@ def step_4():
                 st.error(f"Erro: {exc}")
 
     st.divider()
-    st.markdown("**Queries de busca para LinkedIn** — vagas buscadas automaticamente a cada 2h")
     saved_queries = config.keywords("linkedin") or ["Data Engineer", "Analytics Engineer", "BI Analyst"]
-    queries_raw = st.text_area(
-        "Cargos para buscar (um por linha)",
-        value="\n".join(saved_queries) if isinstance(saved_queries, list) else saved_queries,
-        height=100,
-    )
-    if st.button("Salvar queries"):
-        cfg = config.load()
-        cfg.setdefault("coleta", {})["keywords_linkedin"] = [q.strip() for q in queries_raw.splitlines() if q.strip()]
-        config.save(cfg)
-        st.success("✓ Queries salvas!")
+    with st.container(key="prefs"), st.form("linkedin_queries_form"):
+        queries = _chips("Cargos buscados no LinkedIn (a cada 2h, com a sessão salva)",
+                         saved_queries, "chips_kw_linkedin")
+        if st.form_submit_button("Salvar buscas"):
+            cfg = config.load()
+            cfg.setdefault("coleta", {})["keywords_linkedin"] = [q.strip() for q in queries if q.strip()]
+            config.save(cfg)
+            st.success("✓ Buscas salvas!")
 
     st.divider()
     _secao_perfil_linkedin()
@@ -953,43 +925,36 @@ def _secao_perfil_linkedin() -> None:
 # ── Etapa 5: Gupy ────────────────────────────────────────────────────────────
 
 def step_5():
-    st.markdown("#### Plataformas")
-    st.markdown(
-        "O **Gupy** é a plataforma de vagas mais usada no Brasil. "
-        "Configure empresas-alvo pelo slug (ex.: `nubank`, `itau`) e palavras-chave de busca."
-    )
+    _titulo("Plataformas")
+    st.markdown("Onde a coleta procura: empresas no Greenhouse e na Gupy (pelo slug da "
+                "página de vagas) e palavras-chave para a busca geral da Gupy.")
 
-    saved_gupy = config.empresas("gupy")
+    saved_gh = config.empresas("greenhouse") or []
+    saved_gupy = config.empresas("gupy") or []
     saved_keywords = config.keywords("gupy") or ["Engenheiro de Dados", "Analista de BI", "Analytics Engineer"]
 
-    with st.form("gupy_companies_form"):
-        st.markdown("**Slugs de empresas no Gupy** — um por linha (ex.: `nubank`, `ifood`, `xpinc`)")
-        slugs_raw = st.text_area(
-            "Empresas (slugs)",
-            value="\n".join(saved_gupy) if isinstance(saved_gupy, list) else "",
-            height=120,
-            help="Encontre o slug na URL da página de vagas: `empresa.gupy.io`",
-        )
-        st.markdown("**Busca geral** (vagas de qualquer empresa no Gupy)")
-        keywords_raw = st.text_area(
-            "Palavras-chave de busca — uma por linha",
-            value="\n".join(saved_keywords) if isinstance(saved_keywords, list) else "",
-            height=80,
-        )
-        if st.form_submit_button("Salvar configuração Gupy"):
-            new_slugs = [s.strip().lower() for s in slugs_raw.splitlines() if s.strip()]
-            new_keywords = [k.strip() for k in keywords_raw.splitlines() if k.strip()]
+    # Mesmo componente de Preferências (resumo + Editar): slug e palavra-chave
+    # são listas de valores como cargo e cidade — textarea "um por linha" era
+    # um segundo padrão para o mesmo conceito.
+    with st.container(key="prefs"), st.form("plataformas_form"):
+        gh = _chips("Empresas no Greenhouse", saved_gh, "chips_gh",
+                    ajuda="Slug da página: boards.greenhouse.io/<slug>. A descoberta por "
+                          "setor (em Preferências) também preenche esta lista.")
+        gupy = _chips("Empresas na Gupy", saved_gupy, "chips_gupy",
+                      ajuda="Slug da URL: <slug>.gupy.io")
+        kw = _chips("Palavras-chave da busca geral na Gupy", saved_keywords, "chips_kw_gupy")
+        if st.form_submit_button("Salvar plataformas", type="primary"):
             cfg = config.load()
-            cfg.setdefault("coleta", {})["empresas_gupy"] = new_slugs
-            cfg["coleta"]["keywords_gupy"] = new_keywords
+            cfg.setdefault("coleta", {}).update({
+                "empresas_greenhouse": sorted({x.strip().lower() for x in gh if x.strip()}),
+                "empresas_gupy": sorted({x.strip().lower() for x in gupy if x.strip()}),
+                "keywords_gupy": [k.strip() for k in kw if k.strip()],
+            })
             config.save(cfg)
-            st.success(f"✓ {len(new_slugs)} empresa(s) e {len(new_keywords)} keyword(s) salvos!")
+            st.success("✓ Plataformas salvas!")
 
-    if saved_gupy:
-        st.info(f"Empresas configuradas: **{', '.join(saved_gupy[:5])}**{'…' if len(saved_gupy) > 5 else ''}")
-
-    st.divider()
-    st.caption("A coleta Gupy acontece automaticamente a cada 2 horas junto com Greenhouse e Lever.")
+    st.caption("A coleta roda sozinha a cada 2 horas. Lever fica desligado: a sondagem "
+               "de 22 slugs devolveu 2 vagas aderentes.")
 
     if _no_assistente():
         col1, col2 = st.columns(2)
@@ -1003,7 +968,7 @@ def step_5():
 # ── Etapa 6: E-mail ──────────────────────────────────────────────────────────
 
 def step_6():
-    st.markdown("#### Notificações")
+    _titulo("Notificações")
     st.markdown("Configure o envio de relatórios diários por e-mail. Pode ser pulado.")
 
     saved = config.get("email") or {}
@@ -1158,6 +1123,36 @@ def step_7():
 # desistir. A partir daqui o mesmo código serve aos dois usos: as funções de
 # etapa já eram independentes.
 
+def _bloco_cortes():
+    """Os dois números que mais mudam o comportamento do sistema. Estavam em
+    Preferências > Filtros avançados, com rótulos errados ("Autoaprovação"
+    gravava `threshold_excelente`, que é o corte da FILA, com mínimo 70 — e
+    o salvar apagava `threshold_auto`)."""
+    scoring = config.get("scoring") or {}
+    st.markdown("**Cortes de aderência**")
+    with st.form("cortes_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            auto = st.slider("Envio automático a partir de", 70, 100,
+                             int(scoring.get("threshold_auto", 85)), format="%d%%",
+                             help="Só em plataformas com automação (Greenhouse), e só "
+                                  "com o envio ligado. Abaixo disto a vaga vai para Revisar.")
+        with c2:
+            fila = st.slider("Entra na fila de revisão a partir de", 40, 95,
+                             int(scoring.get("threshold_excelente", 65)), format="%d%%",
+                             help="Abaixo disto a vaga fica como possibilidade "
+                                  "(escondida por padrão em Vagas). Score nunca rejeita.")
+        if st.form_submit_button("Salvar cortes"):
+            if fila > auto:
+                st.error("O corte da fila precisa ser menor ou igual ao do envio automático.")
+            else:
+                cfg = config.load()
+                cfg.setdefault("scoring", {}).update({"threshold_auto": int(auto),
+                                                      "threshold_excelente": int(fila)})
+                config.save(cfg)
+                st.success("✓ Cortes salvos!")
+
+
 def secao_automacao():
     """Ligar e desligar o envio automático. Saiu do Início: ligar o envio é
     decisão de configuração, com a caixa "entendo" e a lista do que qualifica —
@@ -1165,7 +1160,7 @@ def secao_automacao():
     `jobapplier/envio_automatico.py`; aqui só botões."""
     from jobapplier import envio_automatico as ea
 
-    st.markdown("#### Automação")
+    _titulo("Automação")
     corte_auto = ea.threshold_auto(config)
 
     if not ea.esta_ativo(config):
@@ -1216,6 +1211,9 @@ def secao_automacao():
                    "candidatadas sem a sua aprovação.", icon=":material/warning:")
 
     st.divider()
+    _bloco_cortes()
+
+    st.divider()
     st.markdown("**Atualizar agora**")
     st.caption("O orquestrador faz isto sozinho a cada 2h; aqui é para quando "
                "você não quer esperar.")
@@ -1251,17 +1249,29 @@ STEP_HANDLERS = {
 #: Seções no modo ajuste, ordenadas pelo que muda com mais frequência — não pela
 #: ordem do assistente. Pretensão e preferências mudam; provedor de IA e
 #: currículo, quase nunca.
-SECOES = [
-    ("Preferências", 3, "Cargos, localização, condições e dados pessoais"),
-    ("Automação", 8, "Envio automático, coleta e varredura de encerradas"),
-    ("Plataformas", 5, "Empresas e palavras-chave por plataforma"),
-    ("LinkedIn", 4, "Sessão salva e busca"),
-    ("Currículo", 2, "Substituir o currículo base"),
-    ("Documentos", 9, "Currículos e cartas que o sistema já gerou"),
-    ("Respostas aprendidas", 10, "O que você digitou uma vez e o sistema repete"),
-    ("Provedor de IA", 1, "Chave de API — opcional, o sistema roda sem"),
-    ("Notificações", 6, "Relatório diário por e-mail"),
+# Três grupos: o que se AJUSTA (e raramente), o que se OPERA (ligar, coletar)
+# e o que se CONSULTA (acervo, memória). Misturados numa lista só, ninguém
+# previa onde estava o quê (auditoria de UX).
+GRUPOS = [
+    ("Ajustar", [
+        ("Preferências", 13, "Cargos, cidades e modalidade"),
+        ("Dados pessoais", 11, "CPF, RG, filiação e autodeclaração"),
+        ("Pretensão", 12, "Faixa salarial e conversão para PJ"),
+        ("Plataformas", 5, "Empresas e palavras-chave no Greenhouse e na Gupy"),
+        ("LinkedIn", 4, "Sessão salva, buscas e análise do perfil"),
+        ("Currículo", 2, "O currículo mestre em uso"),
+        ("Provedor de IA", 1, "Chave de API — opcional, o sistema roda sem"),
+        ("Notificações", 6, "Relatório diário por e-mail"),
+    ]),
+    ("Operar", [
+        ("Automação", 8, "Envio automático, cortes de aderência, coleta e varredura"),
+    ]),
+    ("Consultar", [
+        ("Documentos", 9, "Currículos e cartas que o sistema já gerou"),
+        ("Respostas aprendidas", 10, "O que você digitou uma vez e o sistema repete"),
+    ]),
 ]
+SECOES = [secao for _, secoes in GRUPOS for secao in secoes]
 
 
 def _secao_documentos() -> None:
@@ -1279,6 +1289,9 @@ def _secao_respostas() -> None:
 # Acervo e memória não são etapas do assistente: só existem no modo ajuste.
 STEP_HANDLERS[9] = _secao_documentos
 STEP_HANDLERS[10] = _secao_respostas
+STEP_HANDLERS[11] = _bloco_dados_pessoais
+STEP_HANDLERS[12] = _bloco_pretensao
+STEP_HANDLERS[13] = _bloco_busca      # a etapa 3 do assistente junta os três
 
 
 def _modo_assistente() -> None:
@@ -1304,18 +1317,36 @@ def _modo_ajuste() -> None:
     # escolhida também evita seis consultas ao banco e à API a cada
     # carregamento. E vertical porque nove rótulos numa linha não cabem.
     st.session_state["modo_ajuste"] = True
-    rotulos = [s[0] for s in SECOES]
     nav, conteudo = st.columns([1.15, 3.6], gap="large")
+    atual = st.session_state.get("secao_config", SECOES[0][0])
+
+    def _escolher(grupo: str) -> None:
+        # Um rádio por grupo; escolher num zera os outros — o selecionado
+        # continua um só.
+        valor = st.session_state.get(f"nav_{grupo}")
+        if valor:
+            st.session_state["secao_config"] = valor
+            for outro, _ in GRUPOS:
+                if outro != grupo:
+                    st.session_state[f"nav_{outro}"] = None
+
     with nav, st.container(key="nav-config"):
-        escolhido = st.radio("Seção", rotulos, label_visibility="collapsed",
-                             key="secao_config")
+        for grupo, secoes in GRUPOS:
+            st.markdown(f'<div class="sec" style="margin:var(--e3) 0 var(--e1)">{grupo}</div>',
+                        unsafe_allow_html=True)
+            rotulos = [x[0] for x in secoes]
+            if f"nav_{grupo}" not in st.session_state:
+                st.session_state[f"nav_{grupo}"] = atual if atual in rotulos else None
+            st.radio(grupo, rotulos, label_visibility="collapsed",
+                     key=f"nav_{grupo}", on_change=_escolher, args=(grupo,))
+    escolhido = st.session_state.get("secao_config", SECOES[0][0])
     _, passo, descricao = next(s for s in SECOES if s[0] == escolhido)
 
     with conteudo:
-        # As etapas do assistente já se intitulam; só as seções que existem
-        # apenas aqui precisam de título.
-        if passo > 8:
-            st.markdown(f'<div class="destaque-titulo">{escolhido}</div>'
+        # As etapas e blocos já se intitulam (`_titulo`); só as seções de
+        # consulta precisam de título aqui.
+        if passo in (9, 10):
+            st.markdown(f'<h2 class="destaque-titulo">{escolhido}</h2>'
                         f'<div class="meta-linha">{descricao}</div>',
                         unsafe_allow_html=True)
             st.markdown("")

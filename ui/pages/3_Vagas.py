@@ -26,7 +26,7 @@ from jobapplier.tempo import agora_utc
 config = ConfigManager()
 
 try:
-    from sqlalchemy import func
+    from sqlalchemy import String, cast, func
 
     from jobapplier import aderencia, empresas
     from jobapplier import status as vocab
@@ -69,7 +69,14 @@ _SENIORIDADES = ["Júnior", "Pleno", "Sênior", "Especialista", "Líder"]
 # Chaves fixas para que "Limpar filtros" consiga zerar tudo num clique.
 _PADRAO = {"f_busca": "", "f_status": _OPCOES[0], "f_aderencia": 0,
            "f_modalidades": [], "f_plataformas": [], "f_local": "",
-           "f_senioridades": [], "f_descartadas": False}
+           "f_senioridades": [], "f_descartadas": False, "f_ordem": "aderencia",
+           "f_limite": 25}
+_ORDENS = {"aderencia": "Maior aderência", "recentes": "Mais recentes"}
+PASSO = 25
+
+
+def _mostrar_mais() -> None:
+    st.session_state["f_limite"] = st.session_state.get("f_limite", PASSO) + PASSO
 
 
 def _limpar_filtros() -> None:
@@ -81,12 +88,15 @@ filtros = st.container(key="filtros")
 with filtros:
     c1, c2, c3, c4, c5 = st.columns([1.7, 1.3, 1.05, 1.15, 1.15])
 with c1:
-    busca = st.text_input("Buscar", placeholder="Título ou empresa",
+    busca = st.text_input("Buscar", placeholder="Título, empresa ou tecnologia",
                           label_visibility="collapsed", key="f_busca")
 with c2:
     status_filter = st.selectbox("Status", _OPCOES,
                                  format_func=_rotulo_status,
-                                 label_visibility="collapsed", key="f_status")
+                                 label_visibility="collapsed", key="f_status",
+                                 help="**Na fila**: o que espera a sua decisão. "
+                                      "**Todas**: também encerradas, enviadas e descartadas, "
+                                      "com o status em cada cartão. Os demais são um status só.")
 with c3:
     aderencia_min = st.selectbox("Aderência", list(_FAIXAS),
                                  format_func=_FAIXAS.__getitem__,
@@ -118,9 +128,10 @@ with st.expander("Mais filtros"):
 
 # ── Consulta ──────────────────────────────────────────────────────────────────
 
-def _get_vagas(status: str, busca: str) -> tuple[list, int]:
-    """Devolve (até 100 vagas, total que casa com os filtros). O total existe
-    para a legenda dizer "100 de 808" — o teto era silencioso."""
+def _get_vagas(status: str, busca: str, limite: int, ordem: str) -> tuple[list, int]:
+    """Devolve (até `limite` vagas, total que casa com os filtros). O total
+    existe para a legenda dizer "25 de 808"; "Mostrar mais" sobe o limite de
+    25 em 25 — antes eram 100 de uma vez, 19 telas."""
     with get_session() as session:
         q = session.query(Vaga)
         if status == "aguardando você":
@@ -130,9 +141,12 @@ def _get_vagas(status: str, busca: str) -> tuple[list, int]:
         elif not mostrar_filtradas:
             q = q.filter(Vaga.status.notin_(["filtrada_4a", "filtrada_4b"]))
         if busca:
+            # Também nas tecnologias normalizadas: "Databricks" é como se pensa
+            # numa vaga, e o título raramente diz.
             termo = f"%{busca.lower()}%"
             q = q.filter(
                 func.lower(Vaga.titulo).like(termo) | func.lower(Vaga.empresa).like(termo)
+                | func.lower(cast(Vaga.normalizado_json, String)).like(termo)
             )
         if plataformas:
             q = q.filter(Vaga.plataforma.in_(plataformas))
@@ -142,19 +156,20 @@ def _get_vagas(status: str, busca: str) -> tuple[list, int]:
             q = q.filter(Vaga.score >= aderencia_min)
         if localizacao_busca:
             q = q.filter(func.lower(Vaga.localizacao).like(f"%{localizacao_busca.lower()}%"))
+        ordenacao = ((Vaga.criado_em.desc(), Vaga.score.desc().nullslast())
+                     if ordem == "recentes"
+                     else (Vaga.score.desc().nullslast(), Vaga.criado_em.desc()))
         if senioridades:
             # Senioridade mora em normalizado_json; filtrar no banco exigiria
             # operador JSON por dialeto. Cem linhas em Python é barato.
             aceitas = {x.lower() for x in senioridades}
-            vagas = (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
-                     .limit(400).all())
+            vagas = q.order_by(*ordenacao).limit(400).all()
             filtradas = [v for v in vagas
                          if isinstance(v.normalizado_json, dict)
                          and (v.normalizado_json.get("senioridade") or "").lower() in aceitas]
-            return filtradas[:100], len(filtradas)
+            return filtradas[:limite], len(filtradas)
         total = q.count()
-        return (q.order_by(Vaga.score.desc().nullslast(), Vaga.criado_em.desc())
-                .limit(100).all()), total
+        return q.order_by(*ordenacao).limit(limite).all(), total
 
 
 def _aprovar(vaga_id: int, score_val: float | None):
@@ -174,7 +189,16 @@ def _rejeitar(vaga_id: int, score_val: float | None):
                                             aprovado=False, criado_em=agora_utc()))
 
 
-vagas, total = _get_vagas(status_filter, busca)
+# Ordenação ao lado da contagem: o widget precisa existir antes da consulta,
+# a contagem só depois — por isso o espaço reservado à esquerda.
+linha_topo = st.container()
+with linha_topo:
+    c_cont, c_ord = st.columns([2.2, 1], vertical_alignment="center")
+    with c_ord:
+        ordem = st.selectbox("Ordenar", list(_ORDENS), format_func=_ORDENS.__getitem__,
+                             label_visibility="collapsed", key="f_ordem")
+limite = st.session_state.get("f_limite", PASSO)
+vagas, total = _get_vagas(status_filter, busca, limite, ordem)
 # Em "Na fila" o status é sempre o mesmo e nos filtros por código você acabou
 # de escolhê-lo. Em "Todas" ele é a única defesa: as quatro primeiras eram
 # encerradas com 100% e ninguém via (auditoria de UX).
@@ -195,19 +219,21 @@ ativos = [
 
 
 def _linha_de_contagem(n: int) -> None:
+    criterio = "mais recentes primeiro" if ordem == "recentes" else "por aderência"
     if not n:
         rotulo = "Nenhuma vaga"
     elif total > n:
-        rotulo = f"{n} de {total} vagas, por aderência"
+        rotulo = f"{n} de {total} vagas, {criterio}"
     else:
-        rotulo = f"{n} vaga{'s' if n != 1 else ''}, por aderência"
-    st.markdown(
-        f'<div class="vaga-meta" style="margin:var(--e2) 0 var(--e3)">'
-        f'<span>{rotulo}</span>'
-        + ("".join(_ui.badge(x) for x in ativos) if ativos else "")
-        + "</div>",
-        unsafe_allow_html=True,
-    )
+        rotulo = f"{n} vaga{'s' if n != 1 else ''}, {criterio}"
+    with c_cont:
+        st.markdown(
+            f'<div class="vaga-meta">'
+            f'<span>{rotulo}</span>'
+            + ("".join(_ui.badge(x) for x in ativos) if ativos else "")
+            + "</div>",
+            unsafe_allow_html=True,
+        )
 
 # ── Ações em lote ─────────────────────────────────────────────────────────────
 
@@ -331,3 +357,10 @@ for vaga in vagas:
                             session.query(Vaga).filter(Vaga.id == vaga.id).update(
                                 {"status": "pendente"})
                         st.rerun()
+
+if total > len(vagas):
+    st.write("")
+    st.button(f"Mostrar mais {min(PASSO, total - len(vagas))} "
+              f"({len(vagas)} de {total})",
+              icon=":material/expand_more:", use_container_width=True,
+              on_click=_mostrar_mais)

@@ -1066,6 +1066,30 @@ arquivo. As decisões que ele fixa e que já custaram retrabalho:
   reservado antes, preenchido depois da seleção) — abaixo, caía fora da tela.
 - **`docs/UX_AUDIT.md`**: auditoria de UX/produto (jornada, escala 10→1.000,
   mobile, decisões de produto pendentes) e o "Implementation Round 2".
+- **Configurações em três grupos** (`GRUPOS` em `1_Setup.py`): *Ajustar*
+  (Preferências, Dados pessoais, Pretensão, Plataformas, LinkedIn, Currículo,
+  Provedor de IA, Notificações), *Operar* (Automação) e *Consultar* (Documentos,
+  Respostas aprendidas). A etapa 3 do assistente (`step_3`) junta os três blocos
+  `_bloco_busca` / `_bloco_dados_pessoais` / `_bloco_pretensao`; no modo ajuste
+  cada um é uma seção. Os cortes de aderência ficam em Automação
+  (`_bloco_cortes`): o slider antigo em "Filtros avançados" gravava
+  `threshold_excelente` (corte da fila, 65) sob o nome "Autoaprovação" com
+  mínimo 70, e o salvar apagava `threshold_auto`. Um "Salvar" por seção, e cada
+  um atualiza só as suas chaves de `coleta` — sobrescrever o dict inteiro
+  apagava as empresas das outras seções.
+- **A pretensão salarial é a faixa** (`pretensao`: 10.000 / 13.000 / 16.000,
+  fator PJ 1,3), a mesma do `prompt_candidaturas.md` — `test_prompts.py` falha
+  se divergirem. O campo simples `coleta.salario_esperado` foi removido.
+- **Lista de valores é sempre resumo + "Editar (N)"** (`_chips` em
+  `1_Setup.py`): cargos, cidades, palavras bloqueadas, slugs do Greenhouse e da
+  Gupy, palavras-chave, buscas do LinkedIn.
+- **Vagas mostra 25 e "Mostrar mais 25"**; legenda "25 de 340"; ordenação por
+  aderência ou mais recentes; a busca também casa com `normalizado_json`
+  (tecnologia). Status volta ao cartão quando o filtro é "Todas".
+- **Candidaturas por mês** (expanders, o mais recente aberto); histórico com
+  uma linha por vaga e "· 2×". Registros de antes de 09/2026 em
+  `perguntas_pendentes`/`erro` foram arquivados em lote (`arquivada`,
+  `scripts/arquivar_legados.py`, reversível por `data/arquivamento_*.json`).
 - **`kind="primaryFormSubmit"`** é o botão de formulário: a regra de botão
   primário precisa listá-lo, senão "Salvar preferências" sai com texto cinza
   sobre índigo. Medido na captura.

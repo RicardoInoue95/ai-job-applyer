@@ -134,26 +134,52 @@ def _marcar(vaga_id: int, chave: str) -> None:
 
 if not enviadas:
     st.caption("Nenhuma candidatura enviada ainda.")
-envios = st.container(key="envios")
-for vaga_id, empresa, titulo, em in enviadas:
+_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+          "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def _mes(dt) -> str:
+    return f"{_MESES[dt.month - 1].capitalize()} de {dt.year}" if dt else "Sem data"
+
+
+# Agrupadas por mês de envio, o mais recente aberto e os anteriores fechados:
+# com 50 candidaturas a lista de seletores tinha 3.900px sem nenhum corte
+# (auditoria de UX). Um mês por expander mantém o que importa à mão.
+por_mes: dict[str, list] = {}
+for linha in enviadas:
+    por_mes.setdefault(_mes(linha[3]), []).append(linha)
+
+
+def _linha_de_envio(vaga_id, empresa, titulo, em) -> None:
     atual = desfechos.get(vaga_id)
     chave = f"desfecho_{vaga_id}"
-    with envios:
-        esq, dir_ = st.columns([3.4, 1.6], vertical_alignment="center")
-        with esq:
-            quando = f"Enviada em {em.strftime('%d/%m')}" if em else "Enviada"
-            st.markdown(
-                f'<div class="vaga-empresa">{empresas.nome_exibicao(empresa) or empresa}</div>'
-                f'<div style="font-weight:600;color:var(--txt-1)">{fila.titulo_exibicao(titulo)}</div>'
-                f'<div class="meta-linha">{quando}</div>',
-                unsafe_allow_html=True)
-        with dir_:
-            st.selectbox(
-                "Resposta obtida", OPCOES,
-                index=OPCOES.index(atual.value) if atual else 0,
-                format_func=lambda c: _rotulo[c], key=chave,
-                label_visibility="collapsed", on_change=_marcar, args=(vaga_id, chave),
-            )
+    esq, dir_ = st.columns([3, 2], vertical_alignment="center")
+    with esq:
+        quando = f"Enviada em {em.strftime('%d/%m')}" if em else "Enviada"
+        st.markdown(
+            f'<div class="vaga-empresa">{empresas.nome_exibicao(empresa) or empresa}</div>'
+            f'<div style="font-weight:600;color:var(--txt-1)">{fila.titulo_exibicao(titulo)}</div>'
+            f'<div class="meta-linha">{quando}</div>',
+            unsafe_allow_html=True)
+    with dir_:
+        st.selectbox(
+            "Resposta obtida", OPCOES,
+            index=OPCOES.index(atual.value) if atual else 0,
+            format_func=lambda c: _rotulo[c], key=chave,
+            label_visibility="collapsed", on_change=_marcar, args=(vaga_id, chave),
+        )
+
+
+envios = st.container(key="envios")
+with envios:
+    for i, (mes, linhas_mes) in enumerate(por_mes.items()):
+        sem_resposta = sum(1 for ln in linhas_mes if desfechos.get(ln[0]) is None)
+        rotulo = f"{mes} · {len(linhas_mes)} enviada{'s' if len(linhas_mes) != 1 else ''}"
+        if sem_resposta:
+            rotulo += f" · {sem_resposta} sem resposta"
+        with st.expander(rotulo, expanded=(i == 0)):
+            for linha in linhas_mes:
+                _linha_de_envio(*linha)
 
 # ── Filtros ───────────────────────────────────────────────────────────────────
 
@@ -204,16 +230,22 @@ with get_session() as session:
         q = q.filter(func.lower(Vaga.titulo).like(termo)
                      | func.lower(Vaga.empresa).like(termo))
     linhas = q.order_by(Candidatura.criado_em.desc()).limit(300).all()
-    registros = [
-        {
+    # Uma linha por vaga (a mais recente), com a contagem de tentativas: a
+    # mesma vaga aparecia duas vezes e parecia duplicata.
+    registros, vistas = [], {}
+    for c, v in linhas:
+        if c.vaga_id in vistas:
+            vistas[c.vaga_id]["tentativas"] += 1
+            continue
+        r = {
             "id": c.id, "status": c.status, "criado_em": c.criado_em,
             "erro": c.erro, "perfil_base": c.perfil_base,
             "ats_otimizado": c.ats_score_otimizado,
             "titulo": v.titulo, "empresa": v.empresa,
-            "plataforma": v.plataforma, "link": v.link,
+            "plataforma": v.plataforma, "link": v.link, "tentativas": 1,
         }
-        for c, v in linhas
-    ]
+        vistas[c.vaga_id] = r
+        registros.append(r)
 
 if not registros:
     _ui.vazio("Nenhuma candidatura com esses filtros",
@@ -236,7 +268,8 @@ st.dataframe(
             "Empresa": empresas.nome_exibicao(r["empresa"]) or (r["empresa"] or "—"),
             # Plataforma é nível 3: fica no detalhe. Na tabela, o que decide é
             # vaga, empresa, status e quando.
-            "Status": _rotulo_usuario(r["status"]),
+            "Status": _rotulo_usuario(r["status"])
+                      + (f" · {r['tentativas']}×" if r["tentativas"] > 1 else ""),
             "Data": r["criado_em"],
             "Abrir": r["link"] or None,
         }
