@@ -151,6 +151,15 @@ VAGA_DESCONHECIDA = _e(
     "Abra a vaga pela tela Revisar e aplicar, ou rode uma coleta para trazê-la.",
     auto="coletar", familia="vaga",
 )
+POST_SEM_VAGA = _e(
+    "post-sem-vaga",
+    "Esse texto não parece um anúncio de vaga",
+    "Não achei nem um cargo nem um canal de resposta (e-mail, WhatsApp ou "
+    "perfil) no que você mandou.",
+    "Copie o post inteiro, incluindo a linha de contato — é ela que diz para "
+    "onde a candidatura vai.",
+    auto=None, familia="vaga",
+)
 VAGA_AMBIGUA = _e(
     "vaga-ambigua",
     "Qual vaga é esta?",
@@ -238,6 +247,7 @@ CATALOGO: dict[str, Erro] = {
         BANCO_FORA, SCHEMA_ATRASADO, API_FORA, EXTENSAO_DESATUALIZADA, COLETA_VELHA,
         CURRICULO_AUSENTE, CONFIG_INCOMPLETA, SEM_PROVEDOR_LLM,
         VAGA_DESCONHECIDA, VAGA_AMBIGUA, VAGA_INEXISTENTE, VAGA_ENCERRADA,
+        POST_SEM_VAGA,
         URL_SEM_CANDIDATURA,
         DOSSIE_AUSENTE, LIMITE_DIARIO, DISJUNTOR_ABERTO, JA_CANDIDATADO,
         PERFIL_DE_TERCEIRO, PERFIL_AUSENTE,

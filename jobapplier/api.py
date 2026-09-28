@@ -563,6 +563,41 @@ async def dossie_da_vaga(request):
     return JSONResponse(dados)
 
 
+async def vaga_de_post(request):
+    """Recebe o texto de um post e devolve a candidatura pronta.
+
+        POST /post  {"texto": "...", "autor": "Júlia", "link": "https://..."}
+
+    Devolve: a vaga como foi lida, a aderência, os pontos de atenção, o
+    currículo em PDF (`curriculo_url`), a carta e as três mensagens — e-mail
+    com o assunto que o anúncio pediu, LinkedIn dentro dos 300 caracteres do
+    convite, e WhatsApp com link `wa.me` já preenchido.
+
+    **Não envia nada.** Nem e-mail, nem mensagem: o texto fica pronto para você
+    copiar, do seu endereço e do seu perfil. É a mesma linha da extensão —
+    preencher é assistência, enviar por você é outra coisa.
+    """
+    from starlette.responses import JSONResponse
+
+    from jobapplier import vaga_do_post as mod
+
+    corpo = await request.json()
+    texto = str(corpo.get("texto") or "").strip()
+    if len(texto) < 40:
+        return erros.resposta(erros.POST_SEM_VAGA, 422, "(texto curto demais)")
+
+    post = mod.extrair(texto, autor=str(corpo.get("autor") or ""),
+                       link=str(corpo.get("link") or ""))
+    # Sem cargo E sem canal, não há candidatura possível: seria criar uma vaga
+    # órfã na fila, que é exatamente o lixo que o filtro 4A existe para evitar.
+    if not post.titulo and not post.contato.tem_canal:
+        return erros.resposta(erros.POST_SEM_VAGA, 422)
+
+    resultado = mod.preparar(texto, autor=str(corpo.get("autor") or ""),
+                             link=str(corpo.get("link") or ""))
+    return JSONResponse(resultado)
+
+
 async def decidir_vaga(request):
     """Enviei / descartar / adiar. Toda decisão tira a vaga da fila.
 
@@ -603,6 +638,7 @@ def criar_app():
         Route("/fila", listar_fila),
         Route("/vaga/{vaga_id:int}/dossie", dossie_da_vaga),
         Route("/vaga/{vaga_id:int}/decisao", decidir_vaga, methods=["POST"]),
+        Route("/post", vaga_de_post, methods=["POST"]),
     ])
     app.add_middleware(
         CORSMiddleware, allow_origin_regex=r"https://([\w-]+\.)*"

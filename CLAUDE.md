@@ -50,6 +50,7 @@ Nem toda plataforma merece o mesmo tratamento, e a diferença é deliberada:
 | Gupy | baralho, envio assistido pela extensão | Cloudflare Turnstile no login |
 | LinkedIn | baralho, Easy Apply assistido pela extensão | risco de restrição da conta (invariante 6) |
 | inhire | baralho, envio assistido | reCAPTCHA no formulário — medido |
+| post avulso | dossiê + e-mail/mensagem prontos, envio seu | não há formulário: a vaga é um post que pede currículo por e-mail ou mensagem |
 
 Onde o envio é manual, o trabalho é deixá-lo **rápido**: dossiê pronto, respostas
 prontas, um clique para abrir. Não é aceitar o tédio — é atacá-lo onde dá.
@@ -270,6 +271,51 @@ vive como seção de Configurações, junto com Respostas aprendidas. O corpo da
 duas mora em `ui/_documentos.py` / `ui/_respostas.py` com `render(com_cabecalho)`;
 as páginas em `pages/` são de três linhas e continuam roteáveis por URL —
 `st.navigation` não tem página escondida, então `_ui` oculta o item por CSS.
+
+### Vaga que chega como post: `POST /post`
+
+`jobapplier/vaga_do_post.py` + `jobapplier/abordagem.py`. Boa parte das vagas
+de dados no Brasil não passa por ATS nenhum: é um post de recrutador com
+"enviem o currículo para contato@empresa.com.br com o assunto X". Não há link
+de formulário, não há `jobId`, não há coletor — mas o trabalho que o sistema
+sabe fazer é o mesmo. Cola-se o texto e sai a candidatura inteira:
+
+    POST /post  {"texto": "...", "autor": "Júlia", "link": "https://..."}
+      → o que o post diz (cargo, empresa, cliente, salário, modalidade, contato)
+      → vaga no banco (plataforma `post`), normalizada e pontuada como as outras
+      → dossiê: currículo em PDF (invariante 8) + carta
+      → e-mail, mensagem de LinkedIn e de WhatsApp, prontos para copiar
+
+**Não envia nada** — nem e-mail, nem mensagem. Mesma linha da extensão:
+preparar é assistência, mandar do seu endereço e do seu perfil é você.
+
+O que a leitura do post não pode fazer, e tem teste para cada um:
+
+- **Palpite vira `incertezas`, não texto.** Sem empresa, saudação neutra; sem
+  cargo reconhecido, título vazio — e a resposta diz o que faltou.
+- **Parágrafo não é cargo** (`LIMITE_CARGO`, 70 caracteres): "Hoje o mercado de
+  dados está aquecido…" virava título de vaga e assunto de e-mail.
+- **"Vaga para quem quer…"** é chamada de engajamento, não título.
+- **"R$ 12.000,00" não é telefone.** Telefone exige DDD entre parênteses ou a
+  palavra por perto (whatsapp, zap, telefone).
+- **`lnkd.in/xyz` do curso da autora não é canal de resposta.** Canal é
+  `linkedin.com/in/`, e-mail ou telefone.
+- **Contratante e cliente são campos diferentes** (`THS Tecnologia - Cliente
+  Sebrae Nacional`): juntos num só, o nome tinha 51 caracteres e comia a
+  mensagem do LinkedIn inteira.
+- **O autor do post nunca é deduzido** da primeira linha — quem chama informa,
+  ou a saudação fica neutra.
+
+As mensagens seguem a invariante 3 como a carta sem LLM: só citam tecnologia
+que está **na interseção** entre o que a vaga pede e o que o currículo tem. O
+assunto do e-mail é o que o anúncio pediu, quando pediu — é por ele que o
+recrutador filtra a caixa, e "melhorá-lo" é ignorar a única instrução explícita
+do post. O LinkedIn sai em 280 caracteres (o convite corta em 300) e
+`_encurtar` derruba frase inteira pelo fim, nunca o pedido final. O WhatsApp
+traz `wa.me/<numero>?text=` com a mensagem já escrita; abrir é seu.
+
+Idempotente pelo hash do texto: colar o mesmo post duas vezes devolve a mesma
+vaga (`ja_existia: true`), sem duplicar a fila nem furar `guard.ja_candidatado`.
 
 ### A extensão nas plataformas: preenche e anexa o currículo, no clique
 
@@ -588,6 +634,8 @@ jobapplier/            domínio — nada de UI aqui
   fila.py              a fila do dia e a decisão sobre uma vaga (webapp e painel)
   aderencia.py         o score em três níveis: conclusão, evidência, técnico
   documentos.py        todo currículo e carta em disco, ligados à vaga pelo nome
+  vaga_do_post.py      post colado → vaga, dossiê e mensagens (`POST /post`)
+  abordagem.py         o que dizer: e-mail, LinkedIn e WhatsApp, sem inventar
   collectors/          Greenhouse, Lever, Gupy (APIs REST, sem browser)
   filters/             4A pré-normalização, 4B pós-normalização
   agents/              normalizer, scorer, resume_optimizer, cover_letter

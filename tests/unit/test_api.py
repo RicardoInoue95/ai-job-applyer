@@ -352,3 +352,32 @@ def test_id_do_linkedin_vem_da_url_da_vaga_ou_do_currentjobid(url, esperado):
     from jobapplier import api
 
     assert api._id_linkedin(url) == esperado
+
+
+# ── Vaga que chega como post ─────────────────────────────────────────────────
+# O caminho feliz toca banco e gera PDF; fica no teste de integração. Aqui, o
+# que a rota tem de recusar — porque recusar cedo é o que evita vaga órfã na
+# fila, o mesmo motivo do filtro 4A.
+
+def test_post_curto_demais_nao_vira_vaga(cliente):
+    r = cliente.post("/post", json={"texto": "vaga de dados, chama no zap"})
+    assert r.status_code == 422
+    assert r.json()["erro"]["codigo"] == "post-sem-vaga"
+
+
+def test_post_sem_cargo_e_sem_canal_e_recusado(cliente):
+    """Texto longo, mas não é anúncio: sem cargo reconhecido e sem e-mail,
+    telefone ou perfil, não há candidatura possível."""
+    texto = ("Hoje o mercado de dados está aquecido e muita gente me pergunta "
+             "como se preparar. Escrevi uma thread sobre isso, vale a leitura "
+             "para quem quer entrar na área e não sabe por onde começar.")
+    r = cliente.post("/post", json={"texto": texto})
+    assert r.status_code == 422
+    assert r.json()["erro"]["codigo"] == "post-sem-vaga"
+
+
+def test_erro_do_post_traz_acao(cliente):
+    """Todo erro da API diz o que fazer — é o contrato do catálogo."""
+    r = cliente.post("/post", json={"texto": "oi"})
+    corpo = r.json()["erro"]
+    assert corpo["acao"] and corpo["titulo"]

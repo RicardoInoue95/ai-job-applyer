@@ -111,6 +111,23 @@ REGISTRO: dict[str, Plataforma] = {
             "existe para quando aparecer."
         ),
     ),
+    "post": Plataforma(
+        codigo="post", rotulo="Post avulso",
+        coletor=None, envio=Envio.MANUAL,
+        motivo=(
+            "Não existe formulário para automatizar: a vaga é um post de "
+            "recrutador que pede currículo por e-mail, WhatsApp ou mensagem. O "
+            "sistema faz o trabalho que sabe fazer — pontuar contra o currículo, "
+            "montar o dossiê e escrever a mensagem dos três canais — e quem "
+            "envia é você, do seu e-mail e do seu perfil. Mandar em seu nome "
+            "seria escrever para uma pessoa, não preencher um campo."
+            "\n\n"
+            "Também não tem coletor, e isso é do formato: post não tem API nem "
+            "listagem. A vaga entra quando você cola o texto em `POST /post` "
+            "(`jobapplier/vaga_do_post.py`), e dali em diante é vaga como as "
+            "outras — mesma normalização, mesmo score, mesma fila."
+        ),
+    ),
     "inhire": Plataforma(
         codigo="inhire", rotulo="inhire",
         coletor="inhire", envio=Envio.MANUAL,
